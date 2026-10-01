@@ -3,7 +3,6 @@ simulation:
   fstart: 0.2 # GHz
   fstop: 1.2  # GHz
   n_pts: 1001
-  path: "designs/bowtie001"
 
 materials:
   - name: "PEC_Patch"
