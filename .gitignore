@@ -1,0 +1,7 @@
+*.*
+designs/*
+!designs/*.*
+!designs/*.yaml
+!*.md
+!*.py
+!.gitignore

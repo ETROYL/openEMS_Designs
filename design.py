@@ -1,15 +1,50 @@
 import os
 import yaml
+import math
 import numpy as np
 
-def load_config(config_path):
+def evaluate_value(val, var_dict):
+    """Recursively evaluates strings containing math expressions using var_dict."""
+    if isinstance(val, str):
+        # Allow standard math functions in string expressions
+        allowed_names = {**var_dict, "math": math, "np": np, "abs": abs}
+        try:
+            return float(eval(val, {"__builtins__": None}, allowed_names))
+        except Exception:
+            # If it's a plain string like a material name ('PEC_Patch'), return as-is
+            return val
+    elif isinstance(val, list):
+        return [evaluate_value(item, var_dict) for item in val]
+    elif isinstance(val, dict):
+        return {k: evaluate_value(v, var_dict) for k, v in val.items()}
+    return val
+
+def load_config(config_path, active_vars=None):
     if not os.path.exists(config_path):
         raise FileNotFoundError(f"Configuration file '{config_path}' not found.")
     with open(config_path, 'r') as f:
-        return yaml.safe_load(f)
+        cfg = yaml.safe_load(f)
 
-def build_design(CSX, FDTD, config_file='./bowtie.yaml'):
-    cfg = load_config(config_file)
+    # Extract default variables if present in YAML
+    var_dict = {}
+    if 'variables' in cfg:
+        for v_name, v_opts in cfg['variables'].items():
+            if isinstance(v_opts, dict):
+                var_dict[v_name] = v_opts.get('default', v_opts.get('start', 0.0))
+            else:
+                var_dict[v_name] = v_opts
+
+    # Override defaults with active trial variables (from optimizer)
+    if active_vars is not None:
+        var_dict.update(active_vars)
+
+    # Evaluate expressions if variables exist; otherwise return raw config
+    if var_dict:
+        return evaluate_value(cfg, var_dict)
+    return cfg
+
+def build_design(CSX, FDTD, config_file='./bowtie.yaml', active_vars=None, enable_nf2ff=True):
+    cfg = load_config(config_file, active_vars=active_vars)
 
     unit = float(cfg.get('simulation', {}).get('unit', 1.0))
     fstart = float(cfg['simulation']['fstart']) * 1e9
@@ -100,9 +135,10 @@ def build_design(CSX, FDTD, config_file='./bowtie.yaml'):
     mesh.SmoothMeshLines('y', dl_max, ratio=1.3)
     mesh.SmoothMeshLines('z', dl_max, ratio=1.3)
 
-    # 5. Create NF2FF Recording Box (Required for Far-Field, Gain, Directivity & Efficiency)
-    # Placing the boundary 8 cells inside the grid boundaries to avoid PML
-    nf2ff = FDTD.CreateNF2FFBox()
+    # 5. Create NF2FF Recording Box
+    nf2ff = None
+    if enable_nf2ff:
+        nf2ff = FDTD.CreateNF2FFBox()
 
     port_ret = ports[0] if len(ports) == 1 else ports
     return port_ret, nf2ff
