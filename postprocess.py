@@ -26,6 +26,10 @@ def main():
     fstart = (cfg.get('simulation').get('fstart')) * 1e9
     fstop = (cfg.get('simulation', {}).get('fstop', 1)) * 1e9
     num_pts = int(cfg.get('simulation', {}).get('n_pts', 1024))
+
+    end_criteria = float(cfg.get('simulation', {}).get('end_criteria', 1e-4))
+    max_timesteps = int(cfg.get('simulation', {}).get('max_timesteps', 500000))
+
     Z0 = cfg.get('ports')[0].get("resistance")
 
     if not os.path.exists(sim_dir):
@@ -41,6 +45,7 @@ def main():
     f0 = (fstart + fstop) / 2.0
     fc = (fstop - fstart)
 
+    os.environ["OMP_NUM_THREADS"] = "16" #SIAVASH check
     CSX = ContinuousStructure()
     FDTD = openEMS(EndCriteria=1e-4)
     FDTD.SetCSX(CSX)
@@ -57,7 +62,8 @@ def main():
 
     s11 = port.uf_ref / port.uf_inc
     s11_db = 20 * np.log10(np.abs(s11) + 1e-12)
-    z_in = Z0 * (1 + s11) / (1 - s11)
+    z_in = port.uf_tot / port.if_tot
+    # z_in = Z0 * (1 + s11) / (1 - s11)
     vswr = (1 + abs(s11)) / (1 - abs(s11) + 1e-12)
 
     # =========================================================================

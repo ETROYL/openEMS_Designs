@@ -2,6 +2,7 @@
 designs/*
 !designs/*.*
 !designs/*.yaml
+designs/*optimized.yaml
 !*.md
 !*.py
 !.gitignore

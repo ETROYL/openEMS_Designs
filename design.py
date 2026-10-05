@@ -9,7 +9,9 @@ def evaluate_value(val, var_dict):
         # Allow standard math functions in string expressions
         allowed_names = {**var_dict, "math": math, "np": np, "abs": abs}
         try:
-            return float(eval(val, {"__builtins__": None}, allowed_names))
+            # Round the evaluated float result to 6 decimal places (0.1 µm precision)
+            res = float(eval(val, {"__builtins__": None}, allowed_names))
+            return round(res, 6)
         except Exception:
             # If it's a plain string like a material name ('PEC_Patch'), return as-is
             return val

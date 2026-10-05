@@ -14,13 +14,17 @@ def main():
     dir = config_file[0:-5] # str(cfg.get('simulation', {}).get('path', 'tmp'))
     fstart = (cfg.get('simulation', {}).get('fstart', 0.01))*1e9
     fstop = (cfg.get('simulation', {}).get('fstop', 1))*1e9
+    # num_pts = int(cfg.get('simulation', {}).get('n_pts', 1024))
 
+    end_criteria = float(cfg.get('simulation', {}).get('end_criteria', 1e-4))
+    max_timesteps = int(cfg.get('simulation', {}).get('max_timesteps', 500000))
 
     f0 = (fstart + fstop) / 2.0
     fc = (fstop - fstart)
 
+    os.environ["OMP_NUM_THREADS"] = "16" #SIAVASH check
     CSX = ContinuousStructure()
-    FDTD = openEMS(EndCriteria=1e-4)
+    FDTD = openEMS(EndCriteria=end_criteria, NrTS=max_timesteps)
     FDTD.SetCSX(CSX)
     FDTD.SetGaussExcite(f0, fc)
 
