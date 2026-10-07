@@ -1,0 +1,70 @@
+variables:
+  arm_length:                 # Optimized between start and stop, in steps
+    type: "float"
+    start: 0.15
+    stop: 0.30
+    step: 0.01
+    default: 0.20             # Used by view_cad.py / design.py
+  root_width:
+    type: "float"
+    start: 0.004
+    stop: 0.020
+    step: 0.002
+    default: 0.010
+  tip_width:
+    type: "float"
+    start: 0.010
+    stop: 0.40
+    step: 0.005
+    default: 0.30
+  feed_gap:                   # Held fixed during optimization
+    type: "float"
+    start: 0.002
+    stop: 0.002
+    default: 0.002
+    optimize: false
+
+simulation:
+  unit: 1.0                   # Metric unit scale (1.0 = meters)
+  fstart: 0.3                 # Start frequency in GHz
+  fstop: 1.0                  # Stop frequency in GHz
+  n_pts: 301                  # Frequency sweep resolution
+  end_criteria: 1e-2          # Loose energy threshold for fast optimization trials
+  max_timesteps: 50000        # Caps long runs during optimization
+  target_s11_db: -15.0        # Informational design target stored in the config
+
+materials:
+  - name: "PEC_Patch"
+    type: "metal"
+
+primitives:
+  # Right arm (tapered from root_width to tip_width)
+  - type: "polygon"
+    material: "PEC_Patch"
+    priority: 10
+    elevation: 0
+    length: 0.001
+    norm_dir: "z"
+    points:
+      x: ["feed_gap / 2.0", "arm_length", "arm_length", "feed_gap / 2.0"]
+      y: ["root_width / 2.0", "tip_width / 2.0", "-tip_width / 2.0", "-root_width / 2.0"]
+
+  # Left arm (mirror image)
+  - type: "polygon"
+    material: "PEC_Patch"
+    priority: 10
+    elevation: 0
+    length: 0.001
+    norm_dir: "z"
+    points:
+      x: ["-feed_gap / 2.0", "-arm_length", "-arm_length", "-feed_gap / 2.0"]
+      y: ["root_width / 2.0", "tip_width / 2.0", "-tip_width / 2.0", "-root_width / 2.0"]
+
+ports:
+  - id: 1
+    type: "lumped"
+    resistance: 50.0
+    direction: "x"
+    excite: 1
+    start: ["-feed_gap / 2.0", "-root_width / 2.0", 0]
+    stop:  ["feed_gap / 2.0",   "root_width / 2.0",  0.001]
