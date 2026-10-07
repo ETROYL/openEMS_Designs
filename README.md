@@ -71,7 +71,7 @@ python3 -c "import openEMS; import CSXCAD; print('openEMS imported successfully!
 ├── view_cad.py            # Interactive AppCSXCAD 3D geometry viewer
 ├── README.md              # Project documentation
 └── designs/
-    ├── bowtie01.yaml          # Static (fixed-geometry) design file
+    ├── bowtie_4_points_fix.yaml         # Static (fixed-geometry) design file
     └── dipole_variable.yaml   # Parametric design file used for optimization (example below)
 ```
 
@@ -340,7 +340,7 @@ ports:
 
 - Any string value in `points`, port/box `start`/`stop`, etc. is evaluated as a math expression using the variable names (e.g. `"arm_length / 2.0"`).
 - Numeric values (not strings) are passed through unchanged.
-- Static designs without a `variables` block (such as `bowtie01.yaml`) continue to work with all single-run scripts.
+- Static designs without a `variables` block (such as `bowtie_4_points_fix.yaml`) continue to work with all single-run scripts.
 
 ### Optimized output
 
