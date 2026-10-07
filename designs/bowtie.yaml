@@ -1,0 +1,42 @@
+simulation:
+  unit: 1.0
+  fstart: 0.2 # GHz
+  fstop: 1.2  # GHz
+  n_pts: 1001
+
+materials:
+  - name: "PEC_Patch"
+    type: "metal"
+
+primitives:
+  # Right Wing (Scaled down by 50% to match EMPIRE 500um grid)
+  - type: "polygon"
+    material: "PEC_Patch"
+    priority: 10
+    elevation: 0          
+    length: 0.0005             
+    norm_dir: "z"
+    points:
+      x: [0.001, 0.161, 0.161, 0.001]
+      y: [0.0005, 0.083, -0.083, -0.0005]
+
+  # Left Wing (Scaled down by 50% to match EMPIRE 500um grid)
+  - type: "polygon"
+    material: "PEC_Patch"
+    priority: 10
+    elevation: 0          
+    length: 0.0005             
+    norm_dir: "z"
+    points:
+      x: [-0.001, -0.161, -0.161, -0.001]
+      y: [0.0005, 0.083, -0.083, -0.0005]
+
+ports:
+  # Feed gap is now precisely 2 mm (-1 mm to +1 mm)
+  - id: 1
+    type: "lumped"
+    resistance: 50.0
+    direction: "x"
+    excite: 1
+    start: [-0.001, -0.0005, 0]
+    stop:  [ 0.001,  0.0005,  0.0005]
