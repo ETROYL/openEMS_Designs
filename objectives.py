@@ -71,7 +71,7 @@ def minimize_s11_in_band(sim_results, f_min=None, f_max=None):
     if not np.any(band_mask):
         return 1e6
     
-    return float(np.mean(abs(s11[band_mask])) + np.mean(abs(s11[band_mask])))
+    return float(np.mean(abs(s11[band_mask])) + np.std(abs(s11[band_mask])))
 
 
 def maximize_impedance_smoothness(sim_results, f_min=None, f_max=None):
