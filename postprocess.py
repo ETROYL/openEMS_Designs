@@ -1,4 +1,5 @@
 import os
+from parallel import NUM_THREADS
 import argparse
 import numpy as np
 import matplotlib.pyplot as plt
@@ -45,7 +46,6 @@ def main():
     f0 = (fstart + fstop) / 2.0
     fc = (fstop - fstart)
 
-    os.environ["OMP_NUM_THREADS"] = "16" #SIAVASH check
     CSX = ContinuousStructure()
     FDTD = openEMS(EndCriteria=1e-4)
     FDTD.SetCSX(CSX)

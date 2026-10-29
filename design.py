@@ -104,6 +104,26 @@ def build_design(CSX, FDTD, config_file='./bowtie.yaml', active_vars=None, enabl
             y_snaps.extend([p_start[1], p_stop[1]])
             z_snaps.extend([p_start[2], p_stop[2]])
 
+        elif p_type == 'cylinder':
+            # start / stop = centers of the two end faces, radius in design units.
+            # A flat disk is simply a very short cylinder (e.g. 1 mm thick along z).
+            p_start = [float(v) for v in prim['start']]
+            p_stop  = [float(v) for v in prim['stop']]
+            r = float(prim['radius'])
+
+            mat_obj.AddCylinder(priority=prio, start=p_start, stop=p_stop, radius=r)
+
+            # Mesh snap lines: along the axis use the end faces,
+            # in the two perpendicular directions use center +/- radius.
+            diff = [abs(p_stop[i] - p_start[i]) for i in range(3)]
+            axis = diff.index(max(diff))   # 0=x, 1=y, 2=z
+            snaps = (x_snaps, y_snaps, z_snaps)
+            for i in range(3):
+                if i == axis:
+                    snaps[i].extend([p_start[i], p_stop[i]])
+                else:
+                    snaps[i].extend([p_start[i] - r, p_start[i] + r])
+
     # 3. Parse Ports
     ports = []
     for p in cfg.get('ports', []):

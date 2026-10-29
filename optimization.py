@@ -1,10 +1,12 @@
 import os
 import sys
+from parallel import NUM_THREADS
 import argparse
 import yaml
 import optuna
 import numpy as np
 import matplotlib.pyplot as plt
+from matplotlib.patches import Circle, Rectangle
 from CSXCAD import ContinuousStructure
 from openEMS import openEMS
 from design import build_design, load_config
@@ -45,24 +47,61 @@ class GeometryMonitor2D:
         self.ax.set_xlabel("X (meters)")
         self.ax.set_ylabel("Y (meters)")
 
-        # Plot Primitives (Polygons & Boxes)
-        for prim in cfg.get('primitives', []):
+        # Plot Primitives (Polygons & Cylinders)
+        for idx, prim in enumerate(cfg.get('primitives', [])):
+            label = prim.get('material', 'Patch')
+
             if prim['type'] == 'polygon':
                 px = prim['points']['x']
                 py = prim['points']['y']
                 # Close the polygon loop for display
                 px_loop = px + [px[0]]
                 py_loop = py + [py[0]]
-                
-                label = prim.get('material', 'Patch')
+
                 self.ax.plot(px_loop, py_loop, '-o', linewidth=2, markersize=3, label=label)
                 self.ax.fill(px_loop, py_loop, alpha=0.3)
+
+            elif prim['type'] == 'cylinder':
+                p_start = [float(v) for v in prim['start']]
+                p_stop  = [float(v) for v in prim['stop']]
+                r = float(prim['radius'])
+                color = f"C{idx % 10}"
+
+                diff = [abs(p_stop[i] - p_start[i]) for i in range(3)]
+                axis = diff.index(max(diff))  # 0=x, 1=y, 2=z
+
+                if axis == 2:
+                    # Axis along z: footprint in the XY plane is a true circle
+                    patch = Circle((p_start[0], p_start[1]), r,
+                                   facecolor=color, edgecolor=color,
+                                   alpha=0.3, linewidth=2, label=label)
+                    self.ax.add_patch(patch)
+                    # Mark the center
+                    self.ax.plot(p_start[0], p_start[1], '+', color=color, markersize=6)
+                elif axis == 0:
+                    # Axis along x: seen from above it is a rectangle (length x diameter)
+                    x0, x1 = sorted([p_start[0], p_stop[0]])
+                    patch = Rectangle((x0, p_start[1] - r), x1 - x0, 2 * r,
+                                      facecolor=color, edgecolor=color,
+                                      alpha=0.3, linewidth=2, label=label)
+                    self.ax.add_patch(patch)
+                else:
+                    # Axis along y: rectangle (diameter x length)
+                    y0, y1 = sorted([p_start[1], p_stop[1]])
+                    patch = Rectangle((p_start[0] - r, y0), 2 * r, y1 - y0,
+                                      facecolor=color, edgecolor=color,
+                                      alpha=0.3, linewidth=2, label=label)
+                    self.ax.add_patch(patch)
 
         # Plot Port Location
         for p in cfg.get('ports', []):
             p_start = p['start']
             p_stop = p['stop']
             self.ax.plot([p_start[0], p_stop[0]], [p_start[1], p_stop[1]], 'r-X', linewidth=3, markersize=8, label='Lumped Port')
+
+        # Patches do not trigger autoscaling by themselves, so do it explicitly
+        self.ax.relim()
+        self.ax.autoscale_view()
 
         # Formatting
         handles, labels = self.ax.get_legend_handles_labels()
@@ -103,7 +142,7 @@ def run_simulation_instance(config_file, trial_vars, trial_dir):
     cwd = os.getcwd()
     try:
         with SuppressStdout():
-            FDTD.Run(trial_dir, xml_filename, verbose=0)
+            FDTD.Run(trial_dir, cleanup=True, verbose=0, numThreads=NUM_THREADS)
     finally:
         os.chdir(cwd)
 
@@ -183,7 +222,8 @@ def main():
     monitor = None if args.no_plot else GeometryMonitor2D()
 
     optuna.logging.set_verbosity(optuna.logging.INFO)
-    study = optuna.create_study(direction="minimize", sampler=optuna.samplers.TPESampler())
+    study = optuna.create_study(study_name=base_name, storage=f"sqlite:///designs/{base_name}_study.db", load_if_exists=True, direction="minimize", sampler=optuna.samplers.TPESampler(),)
+    # study = optuna.create_study(direction="minimize", sampler=optuna.samplers.TPESampler())
     
     study.optimize(
         lambda trial: objective_wrapper(trial, abs_config_path, sim_dir, monitor), 

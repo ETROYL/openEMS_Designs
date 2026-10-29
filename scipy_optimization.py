@@ -1,5 +1,6 @@
 import os
 import sys
+from parallel import NUM_THREADS
 import argparse
 import yaml
 import numpy as np
@@ -81,7 +82,6 @@ def run_simulation_instance(config_file, trial_vars, trial_dir):
     f0 = (fstart + fstop) / 2.0
     fc = (fstop - fstart)
 
-    os.environ["OMP_NUM_THREADS"] = "16" #SIAVASH check
     CSX = ContinuousStructure()
     FDTD = openEMS(EndCriteria=end_criteria, NrTS=max_timesteps)
     FDTD.SetCSX(CSX)
@@ -96,7 +96,7 @@ def run_simulation_instance(config_file, trial_vars, trial_dir):
     cwd = os.getcwd()
     try:
         with SuppressStdout():
-            FDTD.Run(trial_dir, xml_filename, verbose=0)
+            FDTD.Run(trial_dir, xml_filename, verbose=0, numThreads=NUM_THREADS)
     finally:
         os.chdir(cwd)
 

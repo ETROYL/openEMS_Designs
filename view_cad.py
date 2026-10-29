@@ -1,4 +1,5 @@
 import os
+from parallel import NUM_THREADS
 import argparse
 from CSXCAD import ContinuousStructure
 from openEMS import openEMS

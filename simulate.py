@@ -1,4 +1,5 @@
 import os
+from parallel import NUM_THREADS
 import argparse
 from CSXCAD import ContinuousStructure
 from openEMS import openEMS
@@ -22,7 +23,6 @@ def main():
     f0 = (fstart + fstop) / 2.0
     fc = (fstop - fstart)
 
-    os.environ["OMP_NUM_THREADS"] = "16" #SIAVASH check
     CSX = ContinuousStructure()
     FDTD = openEMS(EndCriteria=end_criteria, NrTS=max_timesteps)
     FDTD.SetCSX(CSX)
