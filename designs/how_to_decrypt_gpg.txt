@@ -1,0 +1,7 @@
+ 
+ ## The following .gpg designs are only internal designs for ETROYL which are encrypted ##
+ 
+ in linux terminal where the .gpg file is located, use the following with your_password:
+
+gpg --decrypt --passphrase "your_password" --batch designs_backup.tar.gz.gpg | tar xzf -
+

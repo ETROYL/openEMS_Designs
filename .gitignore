@@ -3,6 +3,8 @@ designs/*
 designs/*.*
 !designs/dipole_variable.yaml
 !designs/bowtie_4_points_fix.yaml
+!designs/designs_backup.tar.gz.gpg
+!designs/how_to_decrypt_gpg.txt
 
 !optimization.py
 !objectives.py
