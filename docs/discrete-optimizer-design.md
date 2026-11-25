@@ -102,3 +102,50 @@ with EvaluationStore("designs/your_design_discrete_opt/evaluations.sqlite") as s
 
 A retry is deliberately explicit: call `store.save_result(new_result, replace=True)` only when you intend to replace the existing record for that fingerprint. The database is restart-persistent; keep it alongside the optimization output directory and back it up with the simulation results you want to retain.
 
+
+## Surrogate and acquisition component
+
+`optimizer/surrogate.py` adds a lightweight Gaussian-process regression model
+with a Matérn-5/2 ARD kernel and expected improvement (EI) for minimization.
+It uses the repository's existing NumPy/SciPy dependency set; no scikit-learn
+dependency is introduced.
+
+- Model inputs are integer-grid coordinates normalized by each dimension's
+  number of levels. The candidate API rejects non-integer coordinates.
+- The model returns a predicted objective mean and uncertainty for each legal
+  candidate.
+- EI balances exploitation (low predicted objective) and exploration
+  (uncertainty), with `xi` controlling the exploration margin.
+- `rank_candidates()` ranks a supplied pool of discrete candidates and can
+  exclude already-observed coordinates.
+- Only successful evaluations should be used to fit the model. Failed runs
+  remain in the SQLite history and must be excluded from the training targets.
+
+The current GP uses fixed length scales and signal variance. This is a
+transparent first baseline, not a claim that its uncertainty is perfectly
+calibrated. Hyperparameter tuning, candidate-pool generation, batch diversity,
+and end-to-end orchestration are subsequent steps. Exact GP fitting scales
+cubically with the number of training observations, so we will benchmark the
+practical training-set size before selecting a refit policy.
+
+Example:
+
+```python
+from optimizer import GaussianProcessSurrogate
+
+successful = store.list_results(status="ok")
+model = GaussianProcessSurrogate(length_scale=0.25)
+model.fit(
+    [result.indices for result in successful],
+    [result.objective for result in successful],
+    levels=space.levels(),
+)
+ranked = model.rank_candidates(
+    candidate_pool,
+    best_objective=min(result.objective for result in successful),
+    observed={result.indices for result in successful},
+)
+next_candidate = ranked[0][0]
+```
+
+Unit tests for the surrogate use synthetic functions and do not launch FDTD.
