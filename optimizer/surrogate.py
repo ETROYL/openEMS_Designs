@@ -88,12 +88,15 @@ class GaussianProcessSurrogate:
         x = _as_2d(indices)
         y = np.asarray(objectives, dtype=float).reshape(-1)
         level_array = np.asarray(levels, dtype=float).reshape(-1)
+        if not np.allclose(x, np.rint(x)):
+            raise ValueError("training coordinates must be integer-grid indices")
         if x.shape[0] != y.size:
             raise ValueError("X and objectives must contain the same number of observations")
         if x.shape[1] != level_array.size:
             raise ValueError("levels must contain one entry per parameter dimension")
-        if np.any(level_array < 1) or not np.all(np.isfinite(level_array)):
-            raise ValueError("each level count must be finite and >= 1")
+        if (np.any(level_array < 1) or not np.all(np.isfinite(level_array))
+                or not np.allclose(level_array, np.rint(level_array))):
+            raise ValueError("each level count must be a positive integer")
         if not np.all(np.isfinite(y)):
             raise ValueError("objectives must contain only finite values")
         if np.any(x < 0) or np.any(x > (level_array - 1) + 1e-12):
@@ -140,6 +143,8 @@ class GaussianProcessSurrogate:
         x = _as_2d(indices)
         if x.shape[1] != self.levels_.size:
             raise ValueError("prediction points have the wrong dimension")
+        if not np.allclose(x, np.rint(x)):
+            raise ValueError("prediction coordinates must be integer-grid indices")
         if np.any(x < 0) or np.any(x > (self.levels_ - 1) + 1e-12):
             raise ValueError("prediction coordinates are outside the discrete parameter space")
         x_scaled = x / np.maximum(self.levels_ - 1.0, 1.0)
