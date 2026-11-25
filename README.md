@@ -378,3 +378,40 @@ This is an experimental foundation only: it does not yet execute FDTD trials, fi
 
 
 The branch also adds optimizer/evaluator.py, a testable adapter that maps integer-grid candidates into the existing FDTD runner and objective function. It returns structured results (status, objective, parameters, geometry fingerprint, run directory, timing and basic S11/impedance metrics). Its mock-based tests do not require openEMS bindings.\n\n`optimizer/evaluation_store.py` adds a local SQLite evaluation history keyed by the stable fingerprint. It persists successful and failed runs, prevents accidental duplicate records, and supports explicit replacement when retrying a failed candidate.
+
+
+### Discrete surrogate optimizer (experimental)
+
+The new integer-grid optimizer runs independently of the existing Optuna and SciPy scripts. It uses a scrambled Sobol initial design, then a Gaussian-process surrogate with expected improvement to select additional discrete candidates. SQLite stores each unique geometry evaluation so runs can be resumed.
+
+Run from the repository root:
+
+```bash
+python3 optimize_discrete.py \
+  --config designs/dipole_variable.yaml \
+  --budget 30 \
+  --initial-samples 8 \
+  --seed 42
+```
+
+By default, results are stored in `designs/<design>_discrete_opt/evaluations.sqlite`, with each FDTD run in its `runs/` subdirectory. Re-running the same command resumes from the existing database; the budget is the maximum number of **new** FDTD attempts for that invocation.
+
+Analyze the stored history:
+
+```bash
+python3 analyze_discrete.py \
+  --database designs/dipole_variable_discrete_opt/evaluations.sqlite
+```
+
+This writes `analysis/evaluations.csv` and `analysis/optimization_history.png`.
+
+Export the best stored candidate for an independent high-accuracy verification run:
+
+```bash
+python3 export_discrete_best.py \
+  --config designs/dipole_variable.yaml \
+  --database designs/dipole_variable_discrete_opt/evaluations.sqlite
+python3 simulate.py --config designs/dipole_variable_discrete_optimized.yaml
+```
+
+The exporter resolves the winning geometry and applies the repository's stricter verification settings. It does not overwrite the original parametric YAML. The optimization-stage objective remains a comparative screening metric: use identical simulation settings for all candidates in a study, and independently verify the selected design with the exported high-accuracy configuration.
