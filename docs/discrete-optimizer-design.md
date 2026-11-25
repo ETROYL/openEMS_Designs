@@ -59,4 +59,25 @@ Compare random discrete search, existing Optuna TPE and the new optimizer using 
 
 - optimizer/parameter_space.py: exact Decimal-backed grid definitions, integer-index conversion, fixed variables and grid metadata.
 - optimizer/initial_sampling.py: unique scrambled Sobol samples projected onto the discrete grid.
+- optimizer/evaluator.py: candidate-to-FDTD adapter with injectable simulation/objective functions, geometry fingerprints, isolated run directories, structured success/failure results and compact S11/impedance metrics.
 - tests/test_discrete_parameter_space.py: unit tests for both supplied examples and edge cases.
+- tests/test_candidate_evaluator.py: mock-runner tests for parameter mapping, objective evaluation, fingerprints, metrics and failure reporting.
+
+### Candidate evaluation API
+
+The evaluator can be tested without openEMS by injecting a simulation runner and objective function. On a machine with the repository's openEMS Python dependencies installed, bind it to the current implementation with:
+
+```python
+from optimizer import CandidateEvaluator, DiscreteParameterSpace
+
+space = DiscreteParameterSpace.from_config(config)
+evaluator = CandidateEvaluator.from_existing_pipeline(
+    config_file="designs/your_design.yaml",
+    output_dir="designs/your_design_discrete_opt",
+    parameter_space=space,
+)
+result = evaluator.evaluate((3, 2, 1), evaluation_id=1)
+print(result.status, result.objective, result.parameters)
+```
+
+The evaluator reports failed runs explicitly with a configurable penalty; downstream optimization and reporting must inspect status, rather than treating a penalty as a valid physical result. Repeated attempts receive separate simulation directories, while the geometry/config fingerprint remains stable for later deduplication in the evaluation database.
