@@ -63,7 +63,7 @@ class CandidateEvaluatorTests(unittest.TestCase):
         first = evaluator.evaluate((2, 1))
         second = evaluator.evaluate((2, 1))
         self.assertEqual(first.fingerprint, second.fingerprint)
-        self.assertEqual(first.evaluation_dir, second.evaluation_dir)
+        self.assertNotEqual(first.evaluation_dir, second.evaluation_dir)
 
     def test_simulation_failure_is_recorded_not_hidden(self):
         def broken_runner(*_args):
