@@ -44,12 +44,12 @@ Total: **2,163,200** discrete geometries. The requested stop values 0.35 m are n
 1. Generate an initial space-filling set using scrambled Sobol points mapped to integer grid indices.
 2. Run each candidate through the existing design builder, FDTD wrapper and objective function.
 3. Persist parameter indices, physical values, objective, metrics, simulation settings, status and a stable evaluation fingerprint.
-4. Fit an ensemble surrogate (initial candidate: Extra Trees; compare Random Forest during benchmarking).
-5. Generate a large pool of legal discrete candidates and rank them using expected improvement plus explicit exploration and diversity.
+4. Fit the Gaussian-process surrogate to successful evaluations and validate its prediction error as the dataset grows.
+5. Generate a reproducible pool of legal, unexplored integer-grid candidates and rank them using expected improvement.
 6. Evaluate a small batch, update the model and repeat until the simulation budget or stopping rule is reached.
 7. Re-run the best few geometries using strict convergence and frequency settings.
 
-Acquisition uncertainty must be calibrated against held-out or cross-validated residuals. Raw tree-to-tree spread must not be assumed to be a calibrated posterior standard deviation. Candidate selection should reserve budget for global exploration and avoid near-duplicate geometries within a batch.
+The GP predictive uncertainty is model-dependent and must be checked against held-out or cross-validated residuals. Candidate selection should reserve budget for global exploration and avoid near-duplicate geometries within a batch. If exact GP fitting becomes too expensive as the history grows, benchmark sparse or tree-based alternatives before changing the default model.
 
 ## Benchmark protocol
 
