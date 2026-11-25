@@ -30,7 +30,7 @@ class DiscreteParameterSpaceTests(unittest.TestCase):
 
     def test_fixed_and_non_optimized_variables_are_preserved(self):
         space = DiscreteParameterSpace({
-            "fixed": {"type": "float", "start": 0.002, "stop": 0.002, "step": 0.001, "default": 0.002},
+            "fixed": {"type": "float", "start": 0.002, "stop": 0.002, "default": 0.002},
             "disabled": {"type": "float", "start": 1, "stop": 3, "step": 1, "default": 2, "optimize": False},
             "literal": 7,
             "active": {"type": "int", "start": 1, "stop": 5, "step": 2, "default": 1},
