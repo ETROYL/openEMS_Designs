@@ -30,10 +30,16 @@ def discrete_candidate_pool(
         raise ParameterSpaceError("n_candidates must be a positive integer")
 
     levels = np.asarray(space.levels(), dtype=np.int64)
-    blocked = {tuple(int(v) for v in point) for point in excluded}
-    for point in blocked:
-        if len(point) != space.dimension or any(v < 0 or v >= levels[i] for i, v in enumerate(point)):
-            raise ParameterSpaceError(f"Excluded point {point!r} is outside this parameter space")
+    blocked: set[tuple[int, ...]] = set()
+    for raw_point in excluded:
+        point = tuple(raw_point)
+        if (len(point) != space.dimension
+                or any(isinstance(v, bool) or not isinstance(v, (int, np.integer)) for v in point)):
+            raise ParameterSpaceError(f"Excluded point {point!r} must contain one integer index per dimension")
+        normalized = tuple(int(v) for v in point)
+        if any(v < 0 or v >= levels[i] for i, v in enumerate(normalized)):
+            raise ParameterSpaceError(f"Excluded point {normalized!r} is outside this parameter space")
+        blocked.add(normalized)
     available = space.cardinality - len(blocked)
     if n_candidates > available:
         raise ParameterSpaceError(
@@ -81,9 +87,17 @@ def select_next_candidates(
     """Return the top EI-ranked unexplored candidates from a Sobol pool."""
     if isinstance(pool_size, bool) or not isinstance(pool_size, int) or pool_size <= 0:
         raise ParameterSpaceError("pool_size must be a positive integer")
+    if isinstance(n_candidates, bool) or not isinstance(n_candidates, int) or n_candidates <= 0:
+        raise ParameterSpaceError("n_candidates must be a positive integer")
     if n_candidates > pool_size:
         raise ParameterSpaceError("n_candidates cannot exceed pool_size")
-    observed_set = {tuple(int(v) for v in point) for point in observed}
+    observed_set = set()
+    for raw_point in observed:
+        point = tuple(raw_point)
+        if (len(point) != space.dimension
+                or any(isinstance(v, bool) or not isinstance(v, (int, np.integer)) for v in point)):
+            raise ParameterSpaceError(f"Observed point {point!r} must contain integer indices")
+        observed_set.add(tuple(int(v) for v in point))
     pool = discrete_candidate_pool(
         space, pool_size, excluded=observed_set, seed=seed
     )
