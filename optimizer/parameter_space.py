@@ -90,6 +90,9 @@ class DiscreteParameterSpace:
             stop = _decimal(options["stop"], f"{name}.stop")
             if stop < start:
                 raise ParameterSpaceError(f"{name}.stop must be >= {name}.start")
+            if stop == start:
+                self.fixed_values[name] = int(start) if value_type == "int" else float(start)
+                continue
             if value_type == "int":
                 step = _decimal(options.get("step", 1), f"{name}.step")
                 if not all(_is_integral(v) for v in (start, stop, step)):
@@ -101,10 +104,7 @@ class DiscreteParameterSpace:
             if step <= 0:
                 raise ParameterSpaceError(f"{name}.step must be greater than zero")
             count = int(((stop - start) / step).to_integral_value(rounding=ROUND_FLOOR))
-            if count == 0:
-                self.fixed_values[name] = int(start) if value_type == "int" else float(start)
-            else:
-                self.parameters.append(ParameterDefinition(name, value_type, start, step, count))
+            self.parameters.append(ParameterDefinition(name, value_type, start, step, count))
         self._by_name = {p.name: p for p in self.parameters}
 
     @classmethod
