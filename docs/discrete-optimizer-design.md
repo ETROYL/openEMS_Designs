@@ -60,8 +60,10 @@ Compare random discrete search, existing Optuna TPE and the new optimizer using 
 - optimizer/parameter_space.py: exact Decimal-backed grid definitions, integer-index conversion, fixed variables and grid metadata.
 - optimizer/initial_sampling.py: unique scrambled Sobol samples projected onto the discrete grid.
 - optimizer/evaluator.py: candidate-to-FDTD adapter with injectable simulation/objective functions, geometry fingerprints, isolated run directories, structured success/failure results and compact S11/impedance metrics.
+- optimizer/evaluation_store.py: SQLite history keyed by geometry fingerprint, with duplicate protection, explicit retry/replace, status filtering and best-result lookup.
 - tests/test_discrete_parameter_space.py: unit tests for both supplied examples and edge cases.
 - tests/test_candidate_evaluator.py: mock-runner tests for parameter mapping, objective evaluation, fingerprints, metrics and failure reporting.
+- tests/test_evaluation_store.py: persistence, duplicate protection, explicit retry, failed-run retention and best-result selection.
 
 ### Candidate evaluation API
 
@@ -81,3 +83,22 @@ print(result.status, result.objective, result.parameters)
 ```
 
 The evaluator reports failed runs explicitly with a configurable penalty; downstream optimization and reporting must inspect status, rather than treating a penalty as a valid physical result. Repeated attempts receive separate simulation directories, while the geometry/config fingerprint remains stable for later deduplication in the evaluation database.
+
+### Evaluation database API
+
+Store evaluation history in a local SQLite database. The fingerprint is the primary key, so a geometry/configuration already evaluated is not silently simulated and recorded again. Failed evaluations are stored as well.
+
+```python
+from optimizer import EvaluationStore
+
+with EvaluationStore("designs/your_design_discrete_opt/evaluations.sqlite") as store:
+    # Save once; returns False if this fingerprint is already present.
+    inserted = store.save_result(result)
+
+    previous = store.get(result.fingerprint)
+    best = store.best()  # lowest objective among successful evaluations
+    print(store.count(), store.count("failed"))
+```
+
+A retry is deliberately explicit: call `store.save_result(new_result, replace=True)` only when you intend to replace the existing record for that fingerprint. The database is restart-persistent; keep it alongside the optimization output directory and back it up with the simulation results you want to retain.
+
