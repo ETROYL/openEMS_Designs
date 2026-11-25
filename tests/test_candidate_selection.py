@@ -32,6 +32,10 @@ class CandidateSelectionTests(unittest.TestCase):
         with self.assertRaises(ParameterSpaceError):
             discrete_candidate_pool(tiny, 2, excluded={(0,), (1,)})
 
+    def test_pool_rejects_non_integer_exclusions(self):
+        with self.assertRaises(ParameterSpaceError):
+            discrete_candidate_pool(self.space, 3, excluded={(0.5, 1)})
+
     def test_selector_returns_top_ei_candidates_and_excludes_observed(self):
         observed = {(0, 0), (2, 0), (0, 2), (2, 2)}
         model = GaussianProcessSurrogate(length_scale=0.3).fit(
