@@ -353,3 +353,25 @@ simulation:
   n_pts: 1024
   target_s11_db: -40.0
 ```
+
+
+## 🧪 New discrete optimizer foundation (experimental branch)
+
+The feature branch `feature/discrete-surrogate-optimizer` introduces the first building blocks for an integer-grid, surrogate-assisted optimizer. The existing Optuna and SciPy optimization scripts are unchanged.
+
+Current modules:
+
+- `optimizer/parameter_space.py`: converts YAML variables into exact integer-grid coordinates using Decimal arithmetic.
+- `optimizer/initial_sampling.py`: generates unique scrambled Sobol samples mapped onto the discrete grid.
+- `tests/test_discrete_parameter_space.py`: tests the supplied disk and bowtie parameter examples, fixed variables, off-grid bounds and sampling reproducibility.
+- `docs/discrete-optimizer-design.md`: design assumptions, search-space cardinalities and the planned optimization loop.
+
+Run the unit tests with:
+
+```bash
+python3 -m unittest discover -s tests -v
+```
+
+For this discrete optimizer, every active float variable must define a positive `step`. The grid is anchored at `start`; if `stop` is not reachable by whole increments, the last legal point below `stop` is used. The YAML `default` remains a CAD-preview value and is not required to lie inside the optimization bounds.
+
+This is an experimental foundation only: it does not yet execute FDTD trials, fit a surrogate, or replace either existing optimizer.
