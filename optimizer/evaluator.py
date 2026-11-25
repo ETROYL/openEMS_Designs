@@ -156,7 +156,7 @@ class CandidateEvaluator:
         ).hexdigest()
 
         if evaluation_id is None:
-            directory_name = f"eval_{fingerprint[:16]}"
+            directory_name = f"eval_{time.time_ns()}_{fingerprint[:10]}"
         else:
             safe_id = re.sub(r"[^A-Za-z0-9_.-]+", "_", str(evaluation_id)).strip("._")
             if not safe_id:
