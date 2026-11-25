@@ -136,12 +136,8 @@ class CandidateEvaluator:
             failed_penalty=failed_penalty,
         )
 
-    def evaluate(
-        self,
-        indices: Sequence[int],
-        evaluation_id: int | str | None = None,
-    ) -> EvaluationResult:
-        """Run one candidate and return its objective, diagnostics and status."""
+    def fingerprint(self, indices: Sequence[int]) -> str:
+        """Return the stable config/geometry identity without running a simulation."""
         index_tuple = tuple(int(index) for index in indices)
         parameters = self.parameter_space.to_values(index_tuple)
         with open(self.config_file, "rb") as stream:
@@ -151,9 +147,19 @@ class CandidateEvaluator:
             "indices": list(index_tuple),
             "parameters": _stable_value(parameters),
         }
-        fingerprint = hashlib.sha256(
+        return hashlib.sha256(
             json.dumps(identity, sort_keys=True, separators=(",", ":")).encode("utf-8")
         ).hexdigest()
+
+    def evaluate(
+        self,
+        indices: Sequence[int],
+        evaluation_id: int | str | None = None,
+    ) -> EvaluationResult:
+        """Run one candidate and return its objective, diagnostics and status."""
+        index_tuple = tuple(int(index) for index in indices)
+        parameters = self.parameter_space.to_values(index_tuple)
+        fingerprint = self.fingerprint(index_tuple)
 
         if evaluation_id is None:
             directory_name = f"eval_{time.time_ns()}_{fingerprint[:10]}"
