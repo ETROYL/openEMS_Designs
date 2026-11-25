@@ -377,4 +377,4 @@ For this discrete optimizer, every active float variable must define a positive 
 This is an experimental foundation only: it does not yet execute FDTD trials, fit a surrogate, or replace either existing optimizer.
 
 
-The branch also adds optimizer/evaluator.py, a testable adapter that maps integer-grid candidates into the existing FDTD runner and objective function. It returns structured results (status, objective, parameters, geometry fingerprint, run directory, timing and basic S11/impedance metrics). Its mock-based tests do not require openEMS bindings.
+The branch also adds optimizer/evaluator.py, a testable adapter that maps integer-grid candidates into the existing FDTD runner and objective function. It returns structured results (status, objective, parameters, geometry fingerprint, run directory, timing and basic S11/impedance metrics). Its mock-based tests do not require openEMS bindings.\n\n`optimizer/evaluation_store.py` adds a local SQLite evaluation history keyed by the stable fingerprint. It persists successful and failed runs, prevents accidental duplicate records, and supports explicit replacement when retrying a failed candidate.
