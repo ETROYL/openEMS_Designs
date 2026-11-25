@@ -375,3 +375,6 @@ python3 -m unittest discover -s tests -v
 For this discrete optimizer, every active float variable must define a positive `step`. The grid is anchored at `start`; if `stop` is not reachable by whole increments, the last legal point below `stop` is used. The YAML `default` remains a CAD-preview value and is not required to lie inside the optimization bounds.
 
 This is an experimental foundation only: it does not yet execute FDTD trials, fit a surrogate, or replace either existing optimizer.
+
+
+The branch also adds optimizer/evaluator.py, a testable adapter that maps integer-grid candidates into the existing FDTD runner and objective function. It returns structured results (status, objective, parameters, geometry fingerprint, run directory, timing and basic S11/impedance metrics). Its mock-based tests do not require openEMS bindings.
