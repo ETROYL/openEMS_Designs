@@ -149,3 +149,33 @@ next_candidate = ranked[0][0]
 ```
 
 Unit tests for the surrogate use synthetic functions and do not launch FDTD.
+
+### Discrete candidate-pool selection
+
+`optimizer/candidate_selection.py` generates a reproducible Sobol-based pool
+of unexplored candidates, with every coordinate represented as an integer
+grid index. It excludes previously observed points before the pool is scored.
+
+```python
+from optimizer import discrete_candidate_pool, select_next_candidates
+
+observed = {result.indices for result in store.list_results()}
+pool = discrete_candidate_pool(
+    space, n_candidates=4096, excluded=observed, seed=42
+)
+ranked = model.rank_candidates(
+    pool, best_objective=store.best().objective, observed=observed
+)
+next_candidate = ranked[0][0]
+
+# Or combine pool generation and ranking:
+next_batch = select_next_candidates(
+    space, model, best_objective=store.best().objective,
+    observed=observed, n_candidates=1, pool_size=4096, seed=42,
+)
+```
+
+The pool size controls the number of candidates scored by the GP; it is not an
+FDTD evaluation budget. The selector only proposes candidates. The later
+orchestration layer will calculate stable fingerprints and perform a final
+database-level duplicate check immediately before simulation.
