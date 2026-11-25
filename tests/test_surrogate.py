@@ -53,10 +53,14 @@ class SurrogateTests(unittest.TestCase):
         self.assertTrue(all(isinstance(item[0][0], int) for item in ranked))
         self.assertEqual(ranked, sorted(ranked, key=lambda item: item[1], reverse=True))
 
-    def test_rejects_continuous_candidate_coordinates(self):
+    def test_rejects_continuous_coordinates_everywhere(self):
         model = GaussianProcessSurrogate().fit([(0,), (2,)], [1.0, 0.0], levels=(3,))
         with self.assertRaises(ValueError):
             model.rank_candidates([(0.5,)], best_objective=0.0)
+        with self.assertRaises(ValueError):
+            model.predict([(0.5,)])
+        with self.assertRaises(ValueError):
+            GaussianProcessSurrogate().fit([(0.0,), (1.5,)], [1.0, 0.0], levels=(3,))
 
 
 if __name__ == "__main__":
