@@ -179,3 +179,64 @@ The pool size controls the number of candidates scored by the GP; it is not an
 FDTD evaluation budget. The selector only proposes candidates. The later
 orchestration layer will calculate stable fingerprints and perform a final
 database-level duplicate check immediately before simulation.
+
+
+## End-to-end optimizer engine
+
+`optimizer/engine.py` connects the initial sampler, evaluator, SQLite store,
+Gaussian-process model and EI candidate selector into a sequential search.
+The optimizer minimizes the existing scalar objective.
+
+The run budget is the maximum number of **new FDTD attempts during that
+invocation**. A fresh database begins with a Sobol initial design. When
+restarted with an existing database, the optimizer reuses its history and
+continues selecting unexplored candidates. Before every simulation, the
+evaluator computes a stable config/geometry fingerprint and the engine checks
+SQLite; an existing record is skipped without launching FDTD. Successful
+evaluations train the surrogate; failed evaluations remain stored and are
+excluded from both training and future candidate selection.
+
+Example using an existing design configuration:
+
+```python
+import yaml
+from optimizer import (
+    CandidateEvaluator,
+    DiscreteParameterSpace,
+    DiscreteSurrogateOptimizer,
+    EvaluationStore,
+)
+
+config_file = "designs/your_design.yaml"
+with open(config_file, encoding="utf-8") as stream:
+    config = yaml.safe_load(stream)
+
+space = DiscreteParameterSpace.from_config(config)
+evaluator = CandidateEvaluator.from_existing_pipeline(
+    config_file=config_file,
+    output_dir="designs/your_design_discrete_opt/runs",
+    parameter_space=space,
+)
+
+with EvaluationStore("designs/your_design_discrete_opt/evaluations.sqlite") as store:
+    optimizer = DiscreteSurrogateOptimizer(
+        space, evaluator, store,
+        initial_samples=12,
+        pool_size=4096,
+        min_surrogate_points=4,
+        seed=42,
+    )
+    summary = optimizer.run(budget=30)
+    print("New FDTD attempts:", len(summary.evaluations))
+    print("Best objective:", None if summary.best is None else summary.best.objective)
+    print("Stored / successful / failed:",
+          summary.total_stored, summary.successful_stored, summary.failed_stored)
+    print("Stop reason:", summary.stop_reason)
+```
+
+This is a first sequential baseline, not a guarantee of the global optimum.
+The GP is refitted after each new result once enough successful observations
+exist. For larger histories, the exact GP's cubic fitting cost and prediction
+calibration should be benchmarked before increasing the training set without
+limit. Batch execution and parallel FDTD scheduling are intentionally not
+included in this first orchestration layer.
