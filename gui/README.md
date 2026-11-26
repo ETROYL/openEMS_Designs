@@ -14,7 +14,7 @@ existing YAML-driven openEMS design and optimization code.
 - Run the existing root-level `postprocess.py` from the Results tab.
 - Display S-parameter/impedance and NF2FF radiation plots inside the GUI.
 - Keep simulation output in a separate, uniquely named folder selected by the user.
-- Run the ETROYL discrete optimizer from the Optimization tab with live evaluation progress, best-objective reporting and cooperative stop requests.
+- Run the ETROYL discrete optimizer from the Optimization tab with live evaluation progress, best-objective reporting, a live objective/best-so-far convergence plot and cooperative stop requests.
 - Save each optimization launch as an immutable YAML snapshot and a timestamped run under `<design>_opt/`.
 - Save each run's SQLite evaluation history, individual FDTD runs and `best_design.yaml` together.
 - Load the best optimized YAML into the editor without changing the original source-file path.
@@ -35,6 +35,8 @@ bindings configured, then install the optional GUI dependencies:
 
 ```bash
 python3 -m pip install -r requirements-gui.txt
+
+The Optimization tab embeds a live Matplotlib convergence plot beside the run console.
 ```
 
 The CAD preview also requires the `AppCSXCAD` executable to be installed and
