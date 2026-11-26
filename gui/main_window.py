@@ -9,7 +9,7 @@ from pathlib import Path
 
 import yaml
 from PySide6.QtCore import Qt, QProcess
-from PySide6.QtGui import QPixmap
+from PySide6.QtGui import QIcon, QPixmap
 from PySide6.QtWidgets import (
     QComboBox, QDoubleSpinBox, QFileDialog, QFormLayout, QHBoxLayout, QLabel, QMainWindow,
     QMessageBox, QPlainTextEdit, QProgressBar, QPushButton, QScrollArea,
@@ -24,6 +24,12 @@ class MainWindow(QMainWindow):
         super().__init__()
         self.setWindowTitle("ETROYL | Electromagnetic Design & Optimization")
         self.resize(1180, 780)
+
+        # Keep the brand asset package-relative so launch location does not matter.
+        logo_path = Path(__file__).resolve().with_name("logo-mono.webp")
+        self._logo_pixmap = QPixmap(str(logo_path))
+        if not self._logo_pixmap.isNull():
+            self.setWindowIcon(QIcon(self._logo_pixmap))
         self.current_config: Path | None = None
         self._preview_config_path: Path | None = None
         self._simulation_config_path: Path | None = None
@@ -76,8 +82,50 @@ class MainWindow(QMainWindow):
             button.clicked.connect(callback)
             toolbar.addWidget(button)
 
+        # Branded application header above the existing workflow tabs.
+        central = QWidget()
+        central_layout = QVBoxLayout(central)
+        central_layout.setContentsMargins(0, 0, 0, 0)
+        central_layout.setSpacing(0)
+
+        header = QWidget()
+        header.setObjectName("etroylHeader")
+        header_layout = QHBoxLayout(header)
+        header_layout.setContentsMargins(24, 12, 24, 12)
+        header_layout.setSpacing(18)
+
+        if not self._logo_pixmap.isNull():
+            logo_label = QLabel()
+            logo_label.setObjectName("etroylLogo")
+            logo_label.setPixmap(self._logo_pixmap.scaled(
+                190, 54,
+                Qt.AspectRatioMode.KeepAspectRatio,
+                Qt.TransformationMode.SmoothTransformation,
+            ))
+            logo_label.setAlignment(Qt.AlignmentFlag.AlignVCenter | Qt.AlignmentFlag.AlignLeft)
+            header_layout.addWidget(logo_label)
+
+        brand_text = QWidget()
+        brand_text_layout = QVBoxLayout(brand_text)
+        brand_text_layout.setContentsMargins(0, 0, 0, 0)
+        brand_text_layout.setSpacing(2)
+        product_title = QLabel("Electromagnetic Design & Optimization")
+        product_title.setStyleSheet("font-size: 17px; font-weight: 650;")
+        brand_caption = QLabel("SCIENCE  |  ENGINEERING  |  DEPLOYMENT")
+        brand_caption.setStyleSheet("font-size: 9px; letter-spacing: 1.4px; color: palette(mid);")
+        brand_text_layout.addWidget(product_title)
+        brand_text_layout.addWidget(brand_caption)
+        header_layout.addWidget(brand_text)
+        header_layout.addStretch(1)
+        header.setStyleSheet(
+            "#etroylHeader { border-bottom: 1px solid palette(midlight); }"
+        )
+
+        central_layout.addWidget(header)
+
         self.tabs = QTabWidget()
-        self.setCentralWidget(self.tabs)
+        central_layout.addWidget(self.tabs, 1)
+        self.setCentralWidget(central)
         self.editor = QPlainTextEdit()
         self.editor.setPlaceholderText("Open a design YAML file or enter a configuration…")
         self.editor.setLineWrapMode(QPlainTextEdit.LineWrapMode.NoWrap)
