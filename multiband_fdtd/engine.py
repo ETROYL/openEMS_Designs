@@ -389,9 +389,24 @@ def run_multiband_auto(
         max_timesteps=pilot_max_timesteps,
         threads=pilot_threads,
     )
-    selected_bands = plan["selected_bands"]
-    if not selected_bands:
+    pilot_bands = plan["selected_bands"]
+    if not pilot_bands:
         raise RuntimeError("Interval preparation returned an empty selection.")
+
+    # Keep the production extraction grid commensurate with the requested
+    # broadband output spacing, rather than reusing the coarser pilot grid.
+    fmin, fmax = map(float, frequency_range_ghz)
+    broadband_step_ghz = (fmax - fmin) / (production_points - 1)
+    selected_bands = [
+        FrequencyBand(
+            band.fstart_ghz,
+            band.fstop_ghz,
+            max(2, int(math.ceil(
+                (band.fstop_ghz - band.fstart_ghz) / broadband_step_ghz
+            )) + 1),
+        )
+        for band in pilot_bands
+    ]
 
     production = run_multiband(
         config_path=config_path,
