@@ -16,6 +16,7 @@ from optimizer import (
     DiscreteParameterSpace,
     DiscreteSurrogateOptimizer,
     EvaluationStore,
+    OptunaTPEOptimizer,
 )
 
 
@@ -24,6 +25,7 @@ def main() -> int:
     parser.add_argument("--config", required=True, help="Immutable YAML snapshot for this optimization")
     parser.add_argument("--run-dir", required=True, help="Dedicated timestamped optimization-run directory")
     parser.add_argument("--budget", type=int, required=True)
+    parser.add_argument("--strategy", choices=["etroyl_discrete", "optuna_tpe"], default="etroyl_discrete")
     parser.add_argument("--initial-samples", type=int, default=8)
     parser.add_argument("--pool-size", type=int, default=4096)
     parser.add_argument("--seed", type=int, default=42)
@@ -124,14 +126,26 @@ def main() -> int:
         print(f"Evaluations already stored: {already_completed}", flush=True)
         print(f"Additional evaluations requested for this run target: {max(0, args.budget - already_completed)}", flush=True)
         print(f"Total evaluation target: {args.budget}", flush=True)
-        optimizer = DiscreteSurrogateOptimizer(
-            space,
-            evaluator,
-            store,
-            initial_samples=args.initial_samples,
-            pool_size=args.pool_size,
-            seed=None if args.seed < 0 else args.seed,
-        )
+        if args.strategy == "etroyl_discrete":
+            optimizer = DiscreteSurrogateOptimizer(
+                space,
+                evaluator,
+                store,
+                initial_samples=args.initial_samples,
+                pool_size=args.pool_size,
+                seed=None if args.seed < 0 else args.seed,
+            )
+            strategy_label = "ETROYL Discrete (Sobol + GP + Expected Improvement)"
+        else:
+            optimizer = OptunaTPEOptimizer(
+                space,
+                evaluator,
+                store,
+                seed=None if args.seed < 0 else args.seed,
+                startup_trials=args.initial_samples,
+            )
+            strategy_label = "Optuna TPE"
+        print(f"Strategy: {strategy_label}", flush=True)
 
         # Restore the full sequence when resuming a paused run.
         history = []
@@ -186,7 +200,7 @@ def main() -> int:
             stop_requested=lambda: stop_file.exists() or pause_file.exists(),
         )
 
-        print("\n========== ETROYL DISCRETE OPTIMIZATION SUMMARY ==========", flush=True)
+        print(f"\n========== {strategy_label.upper()} OPTIMIZATION SUMMARY ==========", flush=True)
         print(f"New FDTD attempts: {len(summary.evaluations)}", flush=True)
         print(f"Total stored: {summary.total_stored}", flush=True)
         print(f"Successful: {summary.successful_stored}", flush=True)
