@@ -36,9 +36,9 @@ bindings configured, then install the optional GUI dependencies:
 
 ```bash
 python3 -m pip install -r requirements-gui.txt
+```
 
 The Optimization tab embeds a live Matplotlib convergence plot beside the run console.
-```
 
 The CAD preview also requires the `AppCSXCAD` executable to be installed and
 available on `PATH`.
