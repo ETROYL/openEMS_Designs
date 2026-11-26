@@ -6,7 +6,7 @@ from unittest.mock import patch
 
 import numpy as np
 
-from multiband_fdtd.engine import BandResult, FrequencyBand, reconstruct_response
+from multiband_fdtd.engine import (\n    BandResult, FrequencyBand, reconstruct_response, run_multiband_auto,\n)
 from multiband_fdtd.planner import BandCost, select_fastest_band_sequence
 from multiband_fdtd.characterization import (
     characterize_frequency_intervals, generate_candidate_bands,
@@ -164,6 +164,111 @@ class CharacterizationTests(unittest.TestCase):
             config.write_text("variables: {}\n", encoding="utf-8")
             with self.assertRaises(ValueError):
                 characterize_frequency_intervals(config, Path(temp) / "out", [])
+
+
+
+class AutomaticRunTests(unittest.TestCase):
+    @patch("multiband_fdtd.engine.run_multiband")
+    @patch("multiband_fdtd.characterization.characterize_and_select_intervals")
+    def test_prepares_then_runs_with_separate_settings(
+        self, characterize, run_production
+    ):
+        selected = [
+            FrequencyBand(0.1, 0.7, 41),
+            FrequencyBand(0.6, 1.5, 41),
+            FrequencyBand(1.4, 3.0, 41),
+        ]
+        characterize.return_value = {
+            "selected_bands": selected,
+            "manifest_path": "/tmp/plan/characterization.json",
+            "selection": {"selected_intervals": []},
+        }
+        run_production.return_value = {
+            "output_dir": "/tmp/automatic_run/simulation",
+            "profile": "accurate",
+            "freq": np.array([1.0]),
+        }
+
+        with tempfile.TemporaryDirectory() as temp:
+            output = Path(temp) / "automatic_run"
+            result = run_multiband_auto(
+                "design.yaml",
+                output,
+                (0.1, 3.0),
+                profile="accurate",
+                pilot_n_pts=31,
+                pilot_end_criteria_db=-8.0,
+                pilot_max_timesteps=12000,
+                pilot_threads=2,
+                end_criteria_db=-35.0,
+                max_timesteps=700000,
+                n_points=801,
+                threads=4,
+                smoothing_sigma_points=1.5,
+            )
+
+        self.assertEqual(result["selected_bands"], selected)
+        self.assertEqual(result["planning_manifest_path"],
+                         "/tmp/plan/characterization.json")
+        self.assertEqual(
+            Path(characterize.call_args.kwargs["output_dir"]),
+            output / "characterization",
+        )
+        self.assertEqual(
+            Path(run_production.call_args.kwargs["output_dir"]),
+            output / "simulation",
+        )
+        self.assertEqual(
+            run_production.call_args.kwargs["bands"], selected
+        )
+        self.assertEqual(run_production.call_args.kwargs["profile"], "accurate")
+        self.assertEqual(run_production.call_args.kwargs["end_criteria_db"], -35.0)
+        self.assertEqual(run_production.call_args.kwargs["max_timesteps"], 700000)
+        self.assertEqual(run_production.call_args.kwargs["n_points"], 801)
+        self.assertEqual(run_production.call_args.kwargs["threads"], 4)
+        self.assertEqual(
+            run_production.call_args.kwargs["smoothing_sigma_points"], 1.5
+        )
+        self.assertEqual(characterize.call_args.kwargs["end_criteria_db"], -8.0)
+        self.assertEqual(characterize.call_args.kwargs["max_timesteps"], 12000)
+        self.assertEqual(characterize.call_args.kwargs["threads"], 2)
+        self.assertEqual(characterize.call_args.kwargs["n_pts"], 31)
+
+    @patch("multiband_fdtd.engine.run_multiband")
+    @patch("multiband_fdtd.characterization.characterize_and_select_intervals")
+    def test_uses_profile_defaults_without_pilot_leakage(
+        self, characterize, run_production
+    ):
+        characterize.return_value = {
+            "selected_bands": [FrequencyBand(0.1, 1.0, 41)],
+            "manifest_path": "characterization.json",
+        }
+        run_production.return_value = {"output_dir": "simulation"}
+        with tempfile.TemporaryDirectory() as temp:
+            run_multiband_auto(
+                "design.yaml", Path(temp) / "run", (0.1, 1.0),
+                profile="optimization",
+                pilot_end_criteria_db=-6.0,
+                pilot_max_timesteps=5000,
+                pilot_threads=1,
+            )
+        kwargs = run_production.call_args.kwargs
+        self.assertIsNone(kwargs["end_criteria_db"])
+        self.assertIsNone(kwargs["max_timesteps"])
+        self.assertIsNone(kwargs["n_points"])
+        self.assertEqual(kwargs["profile"], "optimization")
+
+    def test_rejects_invalid_profile_before_characterization(self):
+        with tempfile.TemporaryDirectory() as temp:
+            with patch(
+                "multiband_fdtd.characterization.characterize_and_select_intervals"
+            ) as characterize:
+                with self.assertRaises(ValueError):
+                    run_multiband_auto(
+                        "design.yaml", Path(temp) / "run", (0.1, 1.0),
+                        profile="unknown",
+                    )
+                characterize.assert_not_called()
 
 
 if __name__ == "__main__":
