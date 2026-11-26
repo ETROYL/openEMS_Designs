@@ -631,6 +631,8 @@ class MainWindow(QMainWindow):
 
     def _update_optimization_evaluation_defaults(self) -> None:
         """Refresh override defaults from the YAML simulation block."""
+        if self.define_optimization_parameters_radio.isChecked():
+            return
         try:
             config = yaml.safe_load(self.editor.toPlainText()) or {}
             sim = config.get("simulation") or {}
