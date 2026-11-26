@@ -11,7 +11,7 @@ import yaml
 from PySide6.QtCore import Qt, QProcess
 from PySide6.QtGui import QPixmap
 from PySide6.QtWidgets import (
-    QComboBox, QFileDialog, QFormLayout, QHBoxLayout, QLabel, QMainWindow,
+    QComboBox, QDoubleSpinBox, QFileDialog, QFormLayout, QHBoxLayout, QLabel, QMainWindow,
     QMessageBox, QPlainTextEdit, QProgressBar, QPushButton, QScrollArea,
     QSpinBox, QTabWidget, QToolBar, QVBoxLayout, QWidget,
 )
@@ -33,6 +33,10 @@ class MainWindow(QMainWindow):
         self._optimization_stdout_buffer = ""
         self._optimization_run_dir = None
         self._optimization_stop_file = None
+        self._optimization_pause_file = None
+        self._optimization_metadata_path = None
+        self._optimization_pause_requested = False
+        self._optimization_was_completed = False
         self.last_best_design_path = None
         self._optimization_stop_requested = False
         self._s11_original_pixmap = QPixmap()
@@ -112,6 +116,24 @@ class MainWindow(QMainWindow):
             "SciPy (SHGO + Nelder–Mead) — coming next",
         ])
         self.optimization_strategy.currentIndexChanged.connect(self._optimization_strategy_changed)
+        self.optimization_objective = QComboBox()
+        self.optimization_objective.addItem("Maximize matched bandwidth", "maximize_bandwidth_in_band")
+        self.optimization_objective.addItem("Minimize worst-case S11", "minimize_max_s11_in_band")
+        self.optimization_objective.addItem("Minimize S11 magnitude", "minimize_s11_in_band")
+        self.optimization_objective.addItem("Maximize impedance smoothness", "maximize_impedance_smoothness")
+        self.optimization_objective.addItem("Combined: S11 + impedance smoothness", "multi_objective_combined")
+        self.optimization_objective.setCurrentIndex(4)
+        self.optimization_objective.currentIndexChanged.connect(self._optimization_objective_changed)
+        self.optimization_weight_s11 = QDoubleSpinBox()
+        self.optimization_weight_s11.setDecimals(6)
+        self.optimization_weight_s11.setRange(0.0, 1000000.0)
+        self.optimization_weight_s11.setSingleStep(0.1)
+        self.optimization_weight_s11.setValue(1.0)
+        self.optimization_weight_smoothness = QDoubleSpinBox()
+        self.optimization_weight_smoothness.setDecimals(6)
+        self.optimization_weight_smoothness.setRange(0.0, 1000000.0)
+        self.optimization_weight_smoothness.setSingleStep(0.001)
+        self.optimization_weight_smoothness.setValue(0.0053)
         self.optimization_budget = QSpinBox()
         self.optimization_budget.setRange(1, 100000)
         self.optimization_budget.setValue(30)
@@ -125,6 +147,9 @@ class MainWindow(QMainWindow):
         self.optimization_seed.setRange(-1, 2147483647)
         self.optimization_seed.setValue(42)
         settings.addRow("Strategy", self.optimization_strategy)
+        settings.addRow("Objective function", self.optimization_objective)
+        settings.addRow("Combined weight — S11", self.optimization_weight_s11)
+        settings.addRow("Combined weight — impedance smoothness", self.optimization_weight_smoothness)
         settings.addRow("New FDTD evaluation budget", self.optimization_budget)
         settings.addRow("Initial Sobol samples", self.optimization_initial_samples)
         settings.addRow("Candidate pool size", self.optimization_pool_size)
@@ -132,13 +157,21 @@ class MainWindow(QMainWindow):
         controls = QHBoxLayout()
         self.start_optimization_button = QPushButton("Start optimization")
         self.start_optimization_button.clicked.connect(self.start_optimization)
-        self.stop_optimization_button = QPushButton("Request stop")
+        self.pause_optimization_button = QPushButton("Pause")
+        self.pause_optimization_button.setEnabled(False)
+        self.pause_optimization_button.clicked.connect(self.pause_optimization)
+        self.resume_optimization_button = QPushButton("Resume")
+        self.resume_optimization_button.setEnabled(False)
+        self.resume_optimization_button.clicked.connect(self.resume_optimization)
+        self.stop_optimization_button = QPushButton("Stop")
         self.stop_optimization_button.setEnabled(False)
         self.stop_optimization_button.clicked.connect(self.stop_optimization)
         self.load_best_design_button = QPushButton("Load best design into YAML editor")
         self.load_best_design_button.setEnabled(False)
         self.load_best_design_button.clicked.connect(self.load_best_design)
         controls.addWidget(self.start_optimization_button)
+        controls.addWidget(self.pause_optimization_button)
+        controls.addWidget(self.resume_optimization_button)
         controls.addWidget(self.stop_optimization_button)
         controls.addWidget(self.load_best_design_button)
         self.optimization_status = QLabel("No optimization has been run yet.")
