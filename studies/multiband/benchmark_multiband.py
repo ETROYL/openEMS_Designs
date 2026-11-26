@@ -109,7 +109,7 @@ def run_window(index: int, fstart: float, fstop: float, args: argparse.Namespace
     fdtd.SetBoundaryCond(
         ["PML_8", "PML_8", "PML_8", "PML_8", "PML_8", "PML_8"]
     )
-    build_design(csx, fdtd, str(config_path))
+    build_design(csx, fdtd, str(config_path), enable_nf2ff=False)
 
     xml_path = sim_dir / "geometry.xml"
     csx.Write2XML(str(xml_path))
