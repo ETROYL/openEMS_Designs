@@ -99,7 +99,9 @@ def maximize_impedance_smoothness(sim_results, f_min=None, f_max=None):
     return int(np.std(absZin))
 
 
-def multi_objective_combined(sim_results, f_min=None, f_max=None):
+def multi_objective_combined(
+    sim_results, f_min=None, f_max=None, weight_s11=1.0, weight_smooth=0.0053
+):
     """
     Combined Objective: 70% S11 minimization + 30% Impedance smoothness.
     Evaluates dynamically across the full spectrum if f_min/f_max are None.
@@ -107,5 +109,5 @@ def multi_objective_combined(sim_results, f_min=None, f_max=None):
     cost_s11 = minimize_s11_in_band(sim_results, f_min=f_min, f_max=f_max)
     cost_smooth = maximize_impedance_smoothness(sim_results, f_min=f_min, f_max=f_max)
     
-    # Normalize and weight
-    return 1.0 * cost_s11 + 0.0053 * float(cost_smooth)
+    # Weighted raw costs. Defaults preserve the original objective behaviour.
+    return float(weight_s11) * cost_s11 + float(weight_smooth) * float(cost_smooth)
