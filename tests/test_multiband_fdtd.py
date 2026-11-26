@@ -6,7 +6,9 @@ from unittest.mock import patch
 
 import numpy as np
 
-from multiband_fdtd.engine import (\n    BandResult, FrequencyBand, reconstruct_response, run_multiband_auto,\n)
+from multiband_fdtd.engine import (
+    BandResult, FrequencyBand, reconstruct_response, run_multiband_auto,
+)
 from multiband_fdtd.planner import BandCost, select_fastest_band_sequence
 from multiband_fdtd.characterization import (
     characterize_frequency_intervals, generate_candidate_bands,
