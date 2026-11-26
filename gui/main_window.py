@@ -672,7 +672,7 @@ class MainWindow(QMainWindow):
             f"Requested allocation: {workers} worker(s) × {threads_per_worker} thread(s) per worker"
         )
         self.optimization_log.appendPlainText(
-            "Note: allocation is recorded and validated in this milestone; concurrent worker execution is the next integration step."
+            f"FDTD execution: {workers} process worker(s) × {threads_per_worker} thread(s) per worker."
         )
         if objective_name == "multi_objective_combined":
             self.optimization_log.appendPlainText(
