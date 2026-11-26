@@ -113,6 +113,8 @@ class IntegratedPlanningTests(unittest.TestCase):
             )
             self.assertGreater(len(result["candidates"]), 0)
             self.assertTrue(result["selected"])
+            self.assertTrue(result["selected_bands"])
+            self.assertTrue(all(isinstance(x, FrequencyBand) for x in result["selected_bands"]))
             self.assertEqual(
                 result["selection"]["frequency_range_ghz"], [0.1, 1.1]
             )
