@@ -201,11 +201,15 @@ def reconstruct_response(
 
     if np.any(w_sum <= 0):
         raise ValueError("The bands leave uncovered reconstruction samples.")
-    s11 = _smooth_complex(s_sum / w_sum, smoothing_sigma_points)
-    z_in = _smooth_complex(z_sum / w_sum, smoothing_sigma_points)
+    s11_raw = s_sum / w_sum
+    z_in_raw = z_sum / w_sum
+    s11 = _smooth_complex(s11_raw, smoothing_sigma_points)
+    z_in = _smooth_complex(z_in_raw, smoothing_sigma_points)
     return {
         "freq": target,
         "frequency_ghz": target / 1e9,
+        "s11_raw": s11_raw,
+        "z_in_raw": z_in_raw,
         "s11": s11,
         "s11_db": 20 * np.log10(np.maximum(np.abs(s11), 1e-15)),
         "z_in": z_in,
@@ -291,11 +295,16 @@ def run_multiband(
     np.savez_compressed(root / "broadband_response.npz", **combined)
     np.savetxt(
         root / "broadband_response.csv",
-        np.column_stack((combined["frequency_ghz"], combined["s11"].real,
-                         combined["s11"].imag, combined["s11_db"],
+        np.column_stack((combined["frequency_ghz"],
+                         combined["s11_raw"].real, combined["s11_raw"].imag,
+                         combined["s11"].real, combined["s11"].imag,
+                         combined["s11_db"],
+                         combined["z_in_raw"].real, combined["z_in_raw"].imag,
                          combined["z_in"].real, combined["z_in"].imag)),
         delimiter=",",
-        header="frequency_GHz,s11_real,s11_imag,s11_dB,z_in_real_ohm,z_in_imag_ohm",
+        header=("frequency_GHz,s11_raw_real,s11_raw_imag,s11_smoothed_real,"
+                "s11_smoothed_imag,s11_smoothed_dB,z_in_raw_real,z_in_raw_imag,"
+                "z_in_smoothed_real,z_in_smoothed_imag"),
         comments="",
     )
     manifest["total_runtime_seconds"] = sum(item.runtime_seconds for item in results)
