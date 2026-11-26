@@ -12,7 +12,7 @@ class SimulationProfileTests(unittest.TestCase):
                 "fstart": 0.1,
                 "fstop": 1.0,
                 "n_pts": 301,
-                "end_criteria": 1e-4,
+                "end_criteria_db": -40.0,
                 "max_timesteps": 500000,
             },
             "optimization": {
@@ -20,7 +20,7 @@ class SimulationProfileTests(unittest.TestCase):
                     "fstart": 0.2,
                     "fstop": 0.8,
                     "n_pts": 51,
-                    "end_criteria": 1e-2,
+                    "end_criteria_db": -15.0,
                     "max_timesteps": 40000,
                 }
             },
@@ -31,7 +31,7 @@ class SimulationProfileTests(unittest.TestCase):
         self.assertEqual(settings["fstart"], 0.1)
         self.assertEqual(settings["fstop"], 1.0)
         self.assertEqual(settings["n_pts"], 301)
-        self.assertEqual(settings["end_criteria"], 1e-4)
+        self.assertAlmostEqual(settings["end_criteria"], 1e-4)
         self.assertEqual(settings["max_timesteps"], 500000)
 
     def test_optimization_profile_overrides_only_evaluation_settings(self):
@@ -39,7 +39,7 @@ class SimulationProfileTests(unittest.TestCase):
         self.assertEqual(settings["fstart"], 0.2)
         self.assertEqual(settings["fstop"], 0.8)
         self.assertEqual(settings["n_pts"], 51)
-        self.assertEqual(settings["end_criteria"], 1e-2)
+        self.assertAlmostEqual(settings["end_criteria"], 10 ** (-15.0 / 10.0))
         self.assertEqual(settings["max_timesteps"], 40000)
         self.assertEqual(settings["unit"], 1.0)
 
