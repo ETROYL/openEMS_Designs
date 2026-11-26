@@ -101,6 +101,8 @@ def characterize_and_select_intervals(
     The generated candidate set is bounded by max_candidates. The selected
     sequence and its settings are saved alongside the measurement manifest.
     """
+    if not math.isfinite(minimum_overlap_ghz) or minimum_overlap_ghz < 0:
+        raise ValueError("minimum_overlap_ghz must be finite and non-negative.")
     widths = tuple(float(width) for width in interval_widths_ghz)
     candidates = generate_candidate_bands(
         frequency_range_ghz,
