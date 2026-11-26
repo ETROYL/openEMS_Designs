@@ -94,8 +94,7 @@ class CharacterizationTests(unittest.TestCase):
         ]
         with tempfile.TemporaryDirectory() as temp:
             config = Path(temp) / "design.yaml"
-            config.write_text("variables: {}
-", encoding="utf-8")
+            config.write_text("variables: {}\n", encoding="utf-8")
             output = Path(temp) / "measurements"
             result = characterize_frequency_intervals(
                 config, output,
@@ -114,8 +113,7 @@ class CharacterizationTests(unittest.TestCase):
     def test_rejects_empty_candidate_list(self):
         with tempfile.TemporaryDirectory() as temp:
             config = Path(temp) / "design.yaml"
-            config.write_text("variables: {}
-", encoding="utf-8")
+            config.write_text("variables: {}\n", encoding="utf-8")
             with self.assertRaises(ValueError):
                 characterize_frequency_intervals(config, Path(temp) / "out", [])
 
