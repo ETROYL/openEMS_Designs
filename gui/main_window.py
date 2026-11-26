@@ -1166,7 +1166,7 @@ class MainWindow(QMainWindow):
         return (
             f"Frequency: {sim.get('fstart', '—')}–{sim.get('fstop', '—')} GHz    |    "
             f"Frequency points: {sim.get('n_pts', 301)}\n"
-            f"Energy decay: {sim.get('end_criteria_db', 'legacy linear: ' + str(sim.get('end_criteria', 1e-4)))} dB    |    "
+            f"Energy decay: {str(sim.get('end_criteria_db')) + ' dB' if 'end_criteria_db' in sim else 'legacy linear threshold ' + str(sim.get('end_criteria', 1e-4))}    |    "
             f"Maximum timesteps: {sim.get('max_timesteps', 500000)}"
         )
 
