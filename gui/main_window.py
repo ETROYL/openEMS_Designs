@@ -16,7 +16,7 @@ from matplotlib.figure import Figure
 from PySide6.QtCore import Qt, QProcess
 from PySide6.QtGui import QIcon, QPixmap
 from PySide6.QtWidgets import (
-    QComboBox, QDoubleSpinBox, QFileDialog, QFormLayout, QHBoxLayout, QLabel, QMainWindow,
+    QComboBox, QDoubleSpinBox, QFileDialog, QFormLayout, QGroupBox, QHBoxLayout, QLabel, QMainWindow,
     QMessageBox, QPlainTextEdit, QProgressBar, QPushButton, QScrollArea,
     QSpinBox, QTabWidget, QToolBar, QVBoxLayout, QWidget,
 )
@@ -165,7 +165,15 @@ class MainWindow(QMainWindow):
             "Optuna and SciPy will be connected next."
         )
         description.setWordWrap(True)
-        settings = QFormLayout()
+        settings_box = QGroupBox("Design Optimization")
+        settings_layout = QHBoxLayout(settings_box)
+        settings_layout.setContentsMargins(12, 12, 12, 12)
+        settings_layout.setSpacing(24)
+        left_settings = QFormLayout()
+        right_settings = QFormLayout()
+        left_settings.setFieldGrowthPolicy(QFormLayout.FieldGrowthPolicy.ExpandingFieldsGrow)
+        right_settings.setFieldGrowthPolicy(QFormLayout.FieldGrowthPolicy.ExpandingFieldsGrow)
+
         self.optimization_strategy = QComboBox()
         self.optimization_strategy.addItems([
             "ETROYL Discrete (Sobol + GP + Expected Improvement)",
@@ -203,14 +211,15 @@ class MainWindow(QMainWindow):
         self.optimization_seed = QSpinBox()
         self.optimization_seed.setRange(-1, 2147483647)
         self.optimization_seed.setValue(42)
-        settings.addRow("Strategy", self.optimization_strategy)
-        settings.addRow("Objective function", self.optimization_objective)
-        settings.addRow("Combined weight — S11", self.optimization_weight_s11)
-        settings.addRow("Combined weight — impedance smoothness", self.optimization_weight_smoothness)
-        settings.addRow("New FDTD evaluation budget", self.optimization_budget)
-        settings.addRow("Initial Sobol samples", self.optimization_initial_samples)
-        settings.addRow("Candidate pool size", self.optimization_pool_size)
-        settings.addRow("Random seed (-1 = random)", self.optimization_seed)
+
+        # Six editable controls on the left.
+        left_settings.addRow("Strategy", self.optimization_strategy)
+        left_settings.addRow("Objective function", self.optimization_objective)
+        left_settings.addRow("Combined weight — S11", self.optimization_weight_s11)
+        left_settings.addRow("Combined weight — impedance smoothness", self.optimization_weight_smoothness)
+        left_settings.addRow("New FDTD evaluation budget", self.optimization_budget)
+        left_settings.addRow("Initial Sobol samples", self.optimization_initial_samples)
+
         self.cpu_resources = detect_cpu_resources()
         self.optimization_resource_mode = QComboBox()
         self.optimization_resource_mode.addItem("Default (4 workers × 2 threads)", "default")
@@ -229,11 +238,20 @@ class MainWindow(QMainWindow):
             f"{self.cpu_resources['logical_threads']} logical CPUs"
         )
         self.optimization_allocation_status = QLabel("Default allocation: 4 workers × 2 threads per worker")
-        settings.addRow("Hardware allocation", self.optimization_resource_mode)
-        settings.addRow("Workers", self.optimization_workers)
-        settings.addRow("Threads per worker", self.optimization_threads)
-        settings.addRow("Detected CPU capacity", self.optimization_cpu_capacity)
-        settings.addRow("Allocation validation", self.optimization_allocation_status)
+        self.optimization_cpu_capacity.setWordWrap(True)
+        self.optimization_allocation_status.setWordWrap(True)
+
+        # Five editable controls on the right, followed by read-only validation details.
+        right_settings.addRow("Candidate pool size", self.optimization_pool_size)
+        right_settings.addRow("Random seed (-1 = random)", self.optimization_seed)
+        right_settings.addRow("Hardware allocation", self.optimization_resource_mode)
+        right_settings.addRow("Workers", self.optimization_workers)
+        right_settings.addRow("Threads per worker", self.optimization_threads)
+        right_settings.addRow("Detected CPU capacity", self.optimization_cpu_capacity)
+        right_settings.addRow("Allocation validation", self.optimization_allocation_status)
+
+        settings_layout.addLayout(left_settings, 1)
+        settings_layout.addLayout(right_settings, 1)
         self._optimization_resource_mode_changed()
         controls = QHBoxLayout()
         self.start_optimization_button = QPushButton("Start optimization")
@@ -285,7 +303,7 @@ class MainWindow(QMainWindow):
 
         layout.addWidget(heading)
         layout.addWidget(description)
-        layout.addLayout(settings)
+        layout.addWidget(settings_box)
         layout.addLayout(controls)
         layout.addWidget(self.optimization_status)
         layout.addWidget(self.optimization_progress)
