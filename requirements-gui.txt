@@ -1,0 +1,1 @@
+# Optional desktop GUI dependencies; install in the openEMS Python environment.\nPySide6>=6.7,<7\nPyYAML>=6.0\n
