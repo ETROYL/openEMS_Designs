@@ -568,7 +568,13 @@ class MainWindow(QMainWindow):
                     self.optimization_log.appendPlainText("Could not parse progress update: " + str(exc))
                 continue
             self.optimization_log.appendPlainText(line)
-            if line.startswith("BEST_DESIGN_PATH="):
+            if line == "OPTIMIZATION_PAUSED=1":
+                self._optimization_pause_requested = True
+            elif line == "OPTIMIZATION_STOPPED=1":
+                self._optimization_stop_requested = True
+            elif line == "OPTIMIZATION_COMPLETED=1":
+                self._optimization_was_completed = True
+            elif line.startswith("BEST_DESIGN_PATH="):
                 self.last_best_design_path = Path(line.split("=", 1)[1].strip())
 
     def _optimization_stderr(self) -> None:
@@ -580,16 +586,24 @@ class MainWindow(QMainWindow):
         remaining = bytes(self._optimization_process.readAllStandardOutput()).decode(errors="replace")
         self._consume_optimization_output(remaining, flush=True)
         self.start_optimization_button.setEnabled(self.optimization_strategy.currentIndex() == 0)
+        self.pause_optimization_button.setEnabled(False)
         self.stop_optimization_button.setEnabled(False)
         if self.last_best_design_path and self.last_best_design_path.is_file():
             self.load_best_design_button.setEnabled(True)
-        if self._optimization_stop_requested:
+        if self._optimization_pause_requested:
+            self.resume_optimization_button.setEnabled(True)
+            self._set_optimization_status("OPTIMIZATION PAUSED — READY TO RESUME", "running")
+            self.statusBar().showMessage("Optimization paused; run history preserved")
+        elif self._optimization_stop_requested:
+            self.resume_optimization_button.setEnabled(False)
             self._set_optimization_status("OPTIMIZATION STOPPED BY USER", "neutral")
             self.statusBar().showMessage("Optimization stopped")
-        elif exit_code == 0 and self.last_best_design_path and self.last_best_design_path.is_file():
+        elif self._optimization_was_completed and self.last_best_design_path and self.last_best_design_path.is_file():
+            self.resume_optimization_button.setEnabled(False)
             self._set_optimization_status("OPTIMIZATION COMPLETED SUCCESSFULLY", "success")
             self.statusBar().showMessage("Optimization completed")
         else:
+            self.resume_optimization_button.setEnabled(False)
             self._set_optimization_status("OPTIMIZATION FAILED — PROCESS EXIT CODE " + str(exit_code), "failure")
             self.statusBar().showMessage("Optimization failed")
             self.optimization_log.appendPlainText("Optimization process exited with code " + str(exit_code) + ".")
