@@ -189,7 +189,6 @@ class MainWindow(QMainWindow):
         self.optimization_strategy.addItems([
             "ETROYL Discrete (Sobol + GP + Expected Improvement)",
             "Optuna (TPE)",
-            "SciPy (SHGO + Nelder–Mead) — coming next",
         ])
         self.optimization_strategy.currentIndexChanged.connect(self._optimization_strategy_changed)
         self.optimization_objective = QComboBox()
@@ -553,11 +552,6 @@ class MainWindow(QMainWindow):
         self.start_optimization_button.setEnabled(
             enabled and self._optimization_process.state() == QProcess.ProcessState.NotRunning
         )
-        if not enabled:
-            self._set_optimization_status(
-                "SciPy is not connected yet. Choose ETROYL Discrete or Optuna TPE.",
-                "neutral",
-            )
 
     def _optimization_resource_mode_changed(self, _index: int = 0) -> None:
         manual = self.optimization_resource_mode.currentData() == "manual"
@@ -589,9 +583,6 @@ class MainWindow(QMainWindow):
             QMessageBox.information(self, "Optimization", "An optimization is already running.")
             return
         strategy_index = self.optimization_strategy.currentIndex()
-        if strategy_index not in (0, 1):
-            QMessageBox.information(self, "Strategy not available", "SciPy is not connected yet.")
-            return
         if self.current_config is None:
             QMessageBox.warning(
                 self, "Design file required",
@@ -1007,7 +998,7 @@ class MainWindow(QMainWindow):
     def _optimization_finished(self, exit_code: int, _exit_status) -> None:
         remaining = bytes(self._optimization_process.readAllStandardOutput()).decode(errors="replace")
         self._consume_optimization_output(remaining, flush=True)
-        self.start_optimization_button.setEnabled(self.optimization_strategy.currentIndex() == 0)
+        self.start_optimization_button.setEnabled(True)
         self.continue_optimization_button.setEnabled(False)
         self.pause_optimization_button.setEnabled(False)
         self.stop_optimization_button.setEnabled(False)
@@ -1044,7 +1035,7 @@ class MainWindow(QMainWindow):
             self.optimization_log.appendPlainText("Optimization process exited with code " + str(exit_code) + ".")
 
     def _optimization_error(self, _error) -> None:
-        self.start_optimization_button.setEnabled(self.optimization_strategy.currentIndex() == 0)
+        self.start_optimization_button.setEnabled(True)
         self.continue_optimization_button.setEnabled(self._has_stored_optimization_history())
         self.pause_optimization_button.setEnabled(False)
         self.resume_optimization_button.setEnabled(False)
