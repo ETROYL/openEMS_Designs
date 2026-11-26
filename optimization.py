@@ -113,12 +113,12 @@ class GeometryMonitor2D:
         plt.pause(0.05)
 
 
-def run_simulation_instance(config_file, trial_vars, trial_dir):
+def run_simulation_instance(config_file, trial_vars, trial_dir, evaluation_settings=None):
     os.makedirs(trial_dir, exist_ok=True)
     cfg = load_config(config_file, active_vars=trial_vars)
     
     unit = float(cfg.get('simulation', {}).get('unit', 1.0))
-    evaluation = get_simulation_settings(cfg, "optimization")
+    evaluation = get_simulation_settings(cfg, "simulation", overrides=evaluation_settings)
     fstart = float(evaluation['fstart']) * 1e9
     fstop  = float(evaluation['fstop'])  * 1e9
     num_pts = int(evaluation.get('n_pts', 301))
@@ -136,7 +136,8 @@ def run_simulation_instance(config_file, trial_vars, trial_dir):
 
     port, _ = build_design(
         CSX, FDTD, config_file=config_file, active_vars=trial_vars,
-        enable_nf2ff=False, simulation_profile="optimization",
+        enable_nf2ff=False, simulation_profile="simulation",
+        simulation_settings_override=evaluation_settings,
     )
 
     xml_filename = 'geometry.xml'
