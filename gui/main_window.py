@@ -27,6 +27,7 @@ class MainWindow(QMainWindow):
         self._simulation_config_path: Path | None = None
         self.last_simulation_dir: Path | None = None
         self.last_simulation_config: Path | None = None
+        self._simulation_stdout_buffer = ""
         self._postprocess_process = QProcess(self)
         self._postprocess_process.readyReadStandardOutput.connect(self._postprocess_stdout)
         self._postprocess_process.readyReadStandardError.connect(self._postprocess_stderr)
@@ -332,7 +333,11 @@ class MainWindow(QMainWindow):
         if not selected_parent:
             return
 
+        if self._postprocess_process.state() != QProcess.ProcessState.NotRunning:
+            QMessageBox.information(self, "FDTD simulation", "Wait for post-processing to finish first.")
+            return
         self._simulation_config_path = self._write_temporary_config("etroyl_gui_simulation_")
+        self._simulation_stdout_buffer = ""
         self.last_simulation_dir = None
         self.last_simulation_config = None
         self.run_postprocess_button.setEnabled(False)
@@ -387,13 +392,23 @@ class MainWindow(QMainWindow):
 
     def _simulation_stdout(self) -> None:
         data = bytes(self._simulation_process.readAllStandardOutput()).decode(errors="replace")
-        if data:
-            for line in data.splitlines():
-                self.simulation_log.appendPlainText(line)
-                if line.startswith("SIMULATION_OUTPUT_DIR="):
-                    self.last_simulation_dir = Path(line.split("=", 1)[1].strip())
-                elif line.startswith("SIMULATION_CONFIG="):
-                    self.last_simulation_config = Path(line.split("=", 1)[1].strip())
+        self._consume_simulation_stdout(data)
+
+    def _consume_simulation_stdout(self, data: str, flush: bool = False) -> None:
+        self._simulation_stdout_buffer += data
+        lines = self._simulation_stdout_buffer.split("\\n")
+        self._simulation_stdout_buffer = "" if flush else lines.pop()
+        if flush and lines and lines[-1] == "":
+            lines.pop()
+        for line in lines:
+            line = line.rstrip("\\r")
+            if not line:
+                continue
+            self.simulation_log.appendPlainText(line)
+            if line.startswith("SIMULATION_OUTPUT_DIR="):
+                self.last_simulation_dir = Path(line.split("=", 1)[1].strip())
+            elif line.startswith("SIMULATION_CONFIG="):
+                self.last_simulation_config = Path(line.split("=", 1)[1].strip())
 
     def _simulation_stderr(self) -> None:
         data = bytes(self._simulation_process.readAllStandardError()).decode(errors="replace")
@@ -401,6 +416,8 @@ class MainWindow(QMainWindow):
             self.simulation_log.appendPlainText(data.rstrip())
 
     def _simulation_finished(self, exit_code: int, _exit_status) -> None:
+        remaining = bytes(self._simulation_process.readAllStandardOutput()).decode(errors="replace")
+        self._consume_simulation_stdout(remaining, flush=True)
         self.run_simulation_button.setEnabled(True)
         self.stop_simulation_button.setEnabled(False)
         if self._simulation_config_path:
@@ -431,6 +448,7 @@ class MainWindow(QMainWindow):
         self.results_log.clear()
         self.results_log.appendPlainText("Starting post-processing of the latest simulation…")
         self.run_postprocess_button.setEnabled(False)
+        self.run_simulation_button.setEnabled(False)
         self.results_status.setText(f"Processing: {self.last_simulation_dir}")
         self._postprocess_process.start(
             sys.executable,
@@ -453,6 +471,7 @@ class MainWindow(QMainWindow):
             self.results_log.appendPlainText(data.rstrip())
 
     def _postprocess_finished(self, exit_code: int, _exit_status) -> None:
+        self.run_simulation_button.setEnabled(True)
         self.run_postprocess_button.setEnabled(
             bool(self.last_simulation_dir and self.last_simulation_config)
         )
@@ -481,6 +500,7 @@ class MainWindow(QMainWindow):
         ))
 
     def _postprocess_error(self, _error) -> None:
+        self.run_simulation_button.setEnabled(True)
         self.run_postprocess_button.setEnabled(
             bool(self.last_simulation_dir and self.last_simulation_config)
         )
