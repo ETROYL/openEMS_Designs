@@ -38,7 +38,7 @@ simulation:
   fstart: 0.1
   fstop: 1.0
   n_pts: 301
-  end_criteria: 1e-4
+  end_criteria_db: -40.0
   max_timesteps: 500000
 
 optimization:
@@ -46,11 +46,14 @@ optimization:
     fstart: 0.2
     fstop: 0.8
     n_pts: 51
-    end_criteria: 1e-2
+    end_criteria_db: -15.0
     max_timesteps: 40000
 ```
 
 All frequency values remain in GHz, matching the existing design schema.
+Use end_criteria_db for an intuitive energy-decay target in dB; the shared
+configuration resolver converts it to the linear energy ratio expected by
+openEMS. Existing end_criteria values remain supported for older YAML files.
 The evaluation profile inherits any setting omitted from
 `optimization.evaluation` from the base `simulation` block. Geometry,
 materials, ports and the mesh unit remain shared. Standalone simulations and
