@@ -1,7 +1,9 @@
-"""Sequential surrogate-assisted optimization orchestration for discrete designs."""
+"""Sequential and process-parallel surrogate-assisted discrete optimization."""
 from __future__ import annotations
 
+from concurrent.futures import ProcessPoolExecutor, as_completed
 from dataclasses import dataclass
+import multiprocessing
 from typing import Callable
 from .candidate_selection import discrete_candidate_pool, select_next_candidates
 from .evaluator import CandidateEvaluator, EvaluationResult
@@ -9,6 +11,7 @@ from .evaluation_store import EvaluationStore
 from .initial_sampling import sobol_initial_design
 from .parameter_space import DiscreteParameterSpace, ParameterSpaceError
 from .surrogate import GaussianProcessSurrogate
+from .parallel_execution import initialize_fdtd_worker, evaluate_fdtd_candidate
 
 
 @dataclass
@@ -23,7 +26,7 @@ class OptimizationSummary:
 
 
 class DiscreteSurrogateOptimizer:
-    """Sequential Sobol + GP/EI search that resumes from SQLite history.
+    """Sobol + GP/EI search that resumes from SQLite history.
 
     The budget counts new FDTD attempts in this invocation. Candidate
     fingerprints are checked before the evaluator is called. Failed attempts
@@ -160,6 +163,131 @@ class DiscreteSurrogateOptimizer:
                 result = self._evaluate_if_new(point, len(new_results) + 1)
                 record(result)
                 if len(new_results) >= budget:
+                    break
+
+        return self._summary(new_results, stop_reason)
+
+    def run_parallel(
+        self,
+        budget: int,
+        *,
+        workers: int,
+        threads_per_worker: int,
+        objective_name: str,
+        objective_weights: dict[str, float] | None = None,
+        progress_callback: Callable[[EvaluationResult, int, int], None] | None = None,
+        stop_requested: Callable[[], bool] | None = None,
+    ) -> OptimizationSummary:
+        """Evaluate candidate batches in spawned worker processes.
+
+        The surrogate is refitted after each batch. Results are collected and
+        persisted by the parent process, keeping SQLite single-writer.
+        """
+        if isinstance(budget, bool) or not isinstance(budget, int) or budget < 0:
+            raise ParameterSpaceError("budget must be a non-negative integer")
+        if workers < 1 or threads_per_worker < 1:
+            raise ValueError("workers and threads_per_worker must be positive")
+        if budget == 0:
+            return self._summary([], "zero budget")
+
+        new_results: list[EvaluationResult] = []
+
+        def cancelled() -> bool:
+            return bool(stop_requested and stop_requested())
+
+        def evaluate_batch(executor, points: list[tuple[int, ...]]) -> bool:
+            tasks = [
+                (point, self.store.count() + offset + 1)
+                for offset, point in enumerate(points)
+            ]
+            futures = {
+                executor.submit(evaluate_fdtd_candidate, task): task
+                for task in tasks
+            }
+            for future in as_completed(futures):
+                result = future.result()
+                self.store.save_result(result)
+                new_results.append(result)
+                if progress_callback is not None:
+                    progress_callback(result, len(new_results), budget)
+            return not cancelled()
+
+        stop_reason = "evaluation budget reached"
+        context = multiprocessing.get_context("spawn")
+        with ProcessPoolExecutor(
+            max_workers=workers,
+            mp_context=context,
+            initializer=initialize_fdtd_worker,
+            initargs=(
+                self.evaluator.config_file,
+                self.evaluator.output_dir,
+                self.space,
+                objective_name,
+                dict(objective_weights or {}),
+                int(threads_per_worker),
+            ),
+        ) as executor:
+            if self.store.count() == 0:
+                initial_count = min(self.initial_samples, budget, self.space.cardinality)
+                initial = sobol_initial_design(self.space, initial_count, seed=self.seed)
+                for start in range(0, len(initial), workers):
+                    if cancelled():
+                        stop_reason = "stop requested"
+                        break
+                    batch = initial[start:start + workers]
+                    if not evaluate_batch(executor, batch):
+                        stop_reason = "stop requested"
+                        break
+                    if len(new_results) >= budget:
+                        break
+
+            while stop_reason == "evaluation budget reached" and len(new_results) < budget:
+                if cancelled():
+                    stop_reason = "stop requested"
+                    break
+
+                all_results = self.store.list_results()
+                observed = {result.indices for result in all_results}
+                available = self.space.cardinality - len(observed)
+                if available <= 0:
+                    stop_reason = "discrete search space exhausted"
+                    break
+
+                batch_count = min(workers, budget - len(new_results), available)
+                successful = [result for result in all_results if result.status == "ok"]
+                n_pool = min(self.pool_size, available)
+
+                if len(successful) >= self.min_surrogate_points:
+                    model = GaussianProcessSurrogate(length_scale=self.length_scale)
+                    model.fit(
+                        [result.indices for result in successful],
+                        [result.objective for result in successful],
+                        levels=self.space.levels(),
+                    )
+                    ranked = select_next_candidates(
+                        self.space,
+                        model,
+                        best_objective=min(result.objective for result in successful),
+                        observed=observed,
+                        n_candidates=batch_count,
+                        pool_size=max(batch_count, n_pool),
+                        xi=self.xi,
+                        seed=None if self.seed is None else self.seed + self.store.count(),
+                    )
+                    candidates = [point for point, _score in ranked]
+                else:
+                    candidates = discrete_candidate_pool(
+                        self.space,
+                        n_candidates=batch_count,
+                        excluded=observed,
+                        seed=None if self.seed is None else self.seed + self.store.count(),
+                    )
+
+                if not candidates:
+                    stop_reason = "no unexplored candidates available"
+                    break
+                if not evaluate_batch(executor, candidates):
+                    stop_reason = "stop requested"
                     break
 
         return self._summary(new_results, stop_reason)
