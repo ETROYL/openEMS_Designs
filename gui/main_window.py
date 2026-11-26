@@ -349,6 +349,8 @@ class MainWindow(QMainWindow):
         self.last_simulation_config = None
         self.run_postprocess_button.setEnabled(False)
         self.results_status.setText("Waiting for the FDTD simulation to complete successfully.")
+        self._s11_original_pixmap = QPixmap()
+        self._radiation_original_pixmap = QPixmap()
         self.s11_plot_label.setText("S-parameter / impedance plot will appear here.")
         self.s11_plot_label.setPixmap(QPixmap())
         self.radiation_plot_label.setText("Radiation / far-field plot will appear here.")
@@ -529,7 +531,6 @@ class MainWindow(QMainWindow):
         super().resizeEvent(event)
         self._refresh_result_plots()
 
-    @staticmethod
     def _set_simulation_status(self, message: str, state: str) -> None:
         styles = {
             "neutral": "background:#e8edf2; color:#344054;",
