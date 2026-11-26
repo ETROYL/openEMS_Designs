@@ -115,8 +115,10 @@ outputs are kept in separate subdirectories:
     )
 
 The output directory contains `characterization/` and `simulation/`, plus
-an `automatic_run.json` summary. The selected interval sequence is measured
-using the YAML design's configured default variable values and then reused
-unchanged for the production call. The production profile controls its own
-convergence and sampling defaults; explicit production overrides can be
-provided through `end_criteria_db`, `max_timesteps` and `n_points`.
+an `automatic_run.json` summary. The selected interval boundaries are
+measured using the YAML design's configured default variable values and then
+kept fixed for the production call. Pilot frequency sampling is not reused:
+production sampling is recalculated from the requested broadband point count.
+The production profile controls its own convergence and sampling defaults;
+explicit production overrides can be provided through `end_criteria_db`,
+`max_timesteps` and `n_points`.
