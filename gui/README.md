@@ -42,4 +42,4 @@ Run from the repository root:
 python3 -m gui.app
 ```
 
-Launch the application from the repository root with `python3 -m gui.app`. The GUI is the supported entry point for the integrated design, simulation and post-processing workflow.
+The GUI is the supported entry point for the integrated design, simulation and post-processing workflow.
