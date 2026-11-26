@@ -591,6 +591,7 @@ class MainWindow(QMainWindow):
         if self.last_best_design_path and self.last_best_design_path.is_file():
             self.load_best_design_button.setEnabled(True)
         if self._optimization_pause_requested:
+            self.start_optimization_button.setEnabled(False)
             self.resume_optimization_button.setEnabled(True)
             self._set_optimization_status("OPTIMIZATION PAUSED — READY TO RESUME", "running")
             self.statusBar().showMessage("Optimization paused; run history preserved")
@@ -610,6 +611,8 @@ class MainWindow(QMainWindow):
 
     def _optimization_error(self, _error) -> None:
         self.start_optimization_button.setEnabled(self.optimization_strategy.currentIndex() == 0)
+        self.pause_optimization_button.setEnabled(False)
+        self.resume_optimization_button.setEnabled(False)
         self.stop_optimization_button.setEnabled(False)
         self._set_optimization_status("OPTIMIZATION FAILED TO START", "failure")
         self.optimization_log.appendPlainText(
