@@ -8,7 +8,9 @@ import numpy as np
 
 from multiband_fdtd.engine import BandResult, FrequencyBand, reconstruct_response
 from multiband_fdtd.planner import BandCost, select_fastest_band_sequence
-from multiband_fdtd.characterization import (\n    characterize_frequency_intervals, generate_candidate_bands,\n)
+from multiband_fdtd.characterization import (
+    characterize_frequency_intervals, generate_candidate_bands,
+)
 
 
 class MultiBandPlannerTests(unittest.TestCase):
@@ -49,7 +51,35 @@ class MultiBandPlannerTests(unittest.TestCase):
         self.assertTrue(np.allclose(np.abs(result["s11"]), 0.3, atol=1e-3))
 
 
-class CandidateGenerationTests(unittest.TestCase):\n    def test_generates_grid_candidates_and_full_range(self):\n        bands = generate_candidate_bands((0.1, 1.1), interval_widths_ghz=(0.5, 1.0), boundary_step_ghz=0.25, n_pts=41)\n        pairs = {(b.fstart_ghz, b.fstop_ghz) for b in bands}\n        self.assertIn((0.1, 1.1), pairs)\n        self.assertIn((0.35, 0.85), pairs)\n        self.assertTrue(all(b.n_pts == 41 for b in bands))\n        self.assertTrue(all(0.1 <= b.fstart_ghz < b.fstop_ghz <= 1.1 for b in bands))\n\n    def test_candidate_limit_and_full_range(self):\n        bands = generate_candidate_bands((0.1, 3.0), interval_widths_ghz=(0.5, 1.0, 1.5), boundary_step_ghz=0.1, max_candidates=7)\n        self.assertLessEqual(len(bands), 7)\n        self.assertIn((0.1, 3.0), {(b.fstart_ghz, b.fstop_ghz) for b in bands})\n\n    def test_single_candidate_limit(self):\n        bands = generate_candidate_bands((0.1, 1.0), max_candidates=1)\n        self.assertEqual(len(bands), 1)\n        self.assertEqual((bands[0].fstart_ghz, bands[0].fstop_ghz), (0.1, 1.0))\n\n    def test_rejects_invalid_generation_settings(self):\n        with self.assertRaises(ValueError):\n            generate_candidate_bands((0.0, 1.0))\n        with self.assertRaises(ValueError):\n            generate_candidate_bands((0.1, 1.0), interval_widths_ghz=())\n        with self.assertRaises(ValueError):\n            generate_candidate_bands((0.1, 1.0), max_candidates=0)\n\n\nclass CharacterizationTests(unittest.TestCase):
+class CandidateGenerationTests(unittest.TestCase):
+    def test_generates_grid_candidates_and_full_range(self):
+        bands = generate_candidate_bands((0.1, 1.1), interval_widths_ghz=(0.5, 1.0), boundary_step_ghz=0.25, n_pts=41)
+        pairs = {(b.fstart_ghz, b.fstop_ghz) for b in bands}
+        self.assertIn((0.1, 1.1), pairs)
+        self.assertIn((0.35, 0.85), pairs)
+        self.assertTrue(all(b.n_pts == 41 for b in bands))
+        self.assertTrue(all(0.1 <= b.fstart_ghz < b.fstop_ghz <= 1.1 for b in bands))
+
+    def test_candidate_limit_and_full_range(self):
+        bands = generate_candidate_bands((0.1, 3.0), interval_widths_ghz=(0.5, 1.0, 1.5), boundary_step_ghz=0.1, max_candidates=7)
+        self.assertLessEqual(len(bands), 7)
+        self.assertIn((0.1, 3.0), {(b.fstart_ghz, b.fstop_ghz) for b in bands})
+
+    def test_single_candidate_limit(self):
+        bands = generate_candidate_bands((0.1, 1.0), max_candidates=1)
+        self.assertEqual(len(bands), 1)
+        self.assertEqual((bands[0].fstart_ghz, bands[0].fstop_ghz), (0.1, 1.0))
+
+    def test_rejects_invalid_generation_settings(self):
+        with self.assertRaises(ValueError):
+            generate_candidate_bands((0.0, 1.0))
+        with self.assertRaises(ValueError):
+            generate_candidate_bands((0.1, 1.0), interval_widths_ghz=())
+        with self.assertRaises(ValueError):
+            generate_candidate_bands((0.1, 1.0), max_candidates=0)
+
+
+class CharacterizationTests(unittest.TestCase):
     @patch("multiband_fdtd.characterization._run_band")
     def test_records_reference_interval_measurements(self, run_band):
         class FakeResult:
@@ -64,7 +94,8 @@ class CandidateGenerationTests(unittest.TestCase):\n    def test_generates_grid_
         ]
         with tempfile.TemporaryDirectory() as temp:
             config = Path(temp) / "design.yaml"
-            config.write_text("variables: {}\n", encoding="utf-8")
+            config.write_text("variables: {}
+", encoding="utf-8")
             output = Path(temp) / "measurements"
             result = characterize_frequency_intervals(
                 config, output,
@@ -83,7 +114,8 @@ class CandidateGenerationTests(unittest.TestCase):\n    def test_generates_grid_
     def test_rejects_empty_candidate_list(self):
         with tempfile.TemporaryDirectory() as temp:
             config = Path(temp) / "design.yaml"
-            config.write_text("variables: {}\n", encoding="utf-8")
+            config.write_text("variables: {}
+", encoding="utf-8")
             with self.assertRaises(ValueError):
                 characterize_frequency_intervals(config, Path(temp) / "out", [])
 
