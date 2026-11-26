@@ -8,8 +8,17 @@ existing YAML-driven openEMS design and optimization code.
 - Open, edit, save and validate YAML design files.
 - Generate CSXCAD geometry from the current YAML editor contents.
 - Open the generated geometry in the external AppCSXCAD viewer.
-- CAD preview uses unsaved editor changes and temporary files; it does not
-  overwrite the selected design or create output in the design directory.
+- Run a standalone openEMS FDTD simulation from the current YAML editor contents.
+- Display the simulation process output and allow the user to stop a run.
+- Keep simulation output in a separate, uniquely named folder selected by the user.
+- CAD preview and simulation use unsaved editor changes; neither overwrites the
+  selected source design.
+
+The standalone simulation currently reads its frequency range, end criterion
+and maximum timestep count from the YAML `simulation` block. It uses PML_8
+boundaries and the thread count from the repository's `parallel.py` module.
+Post-processing and GUI-controlled resource allocation will be added in later
+increments.
 
 ## Install
 
