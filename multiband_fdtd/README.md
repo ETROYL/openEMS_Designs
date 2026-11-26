@@ -58,7 +58,7 @@ A bounded set of candidate intervals can be generated before measurement:
         interval_widths_ghz=(0.5, 1.0, 1.5),
         boundary_step_ghz=0.25,
         n_pts=41,
-        max_candidates=80,
+        max_candidates=40,
     )
 
 The complete requested range is always retained as a fallback candidate.
@@ -75,7 +75,7 @@ one call:
         interval_widths_ghz=(0.5, 1.0, 1.5),
         boundary_step_ghz=0.25,
         n_pts=41,
-        max_candidates=80,
+        max_candidates=40,
         minimum_overlap_ghz=0.1,
         end_criteria_db=-10.0,
         max_timesteps=50000,
