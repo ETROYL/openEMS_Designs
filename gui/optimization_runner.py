@@ -4,6 +4,8 @@ from __future__ import annotations
 import argparse
 import json
 import math
+
+from gui.cpu_resources import detect_cpu_resources, validate_allocation
 from pathlib import Path
 
 import yaml
@@ -36,6 +38,9 @@ def main() -> int:
     ], default="multi_objective_combined")
     parser.add_argument("--weight-s11", type=float, default=1.0)
     parser.add_argument("--weight-smoothness", type=float, default=0.0053)
+    parser.add_argument("--resource-mode", choices=["default", "manual"], default="default")
+    parser.add_argument("--workers", type=int, default=4)
+    parser.add_argument("--threads-per-worker", type=int, default=2)
     args = parser.parse_args()
 
     config_path = Path(args.config).expanduser().resolve()
@@ -48,6 +53,13 @@ def main() -> int:
         parser.error("--budget must be greater than zero")
     if args.initial_samples <= 0 or args.pool_size <= 0:
         parser.error("--initial-samples and --pool-size must be greater than zero")
+    resources = detect_cpu_resources()
+    if args.resource_mode == "default":
+        args.workers, args.threads_per_worker = 4, 2
+    try:
+        validate_allocation(args.workers, args.threads_per_worker)
+    except ValueError as exc:
+        parser.error(str(exc))
 
     with config_path.open("r", encoding="utf-8") as stream:
         config = yaml.safe_load(stream) or {}
@@ -71,6 +83,21 @@ def main() -> int:
             flush=True,
         )
     print(f"Evaluation budget: {args.budget}", flush=True)
+    print(
+        f"CPU capacity: {resources['physical_cores']} physical cores / "
+        f"{resources['logical_threads']} logical CPUs",
+        flush=True,
+    )
+    print(
+        f"Validated allocation: {args.workers} worker(s) × "
+        f"{args.threads_per_worker} thread(s) per worker ({args.resource_mode})",
+        flush=True,
+    )
+    print(
+        "Allocation is validated and persisted; process-based concurrent evaluation "
+        "will be enabled in the next implementation increment.",
+        flush=True,
+    )
     print(f"SQLite history: {database}", flush=True)
 
     objective_weights = {"s11": args.weight_s11, "smoothness": args.weight_smoothness}
