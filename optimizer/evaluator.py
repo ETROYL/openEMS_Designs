@@ -118,21 +118,49 @@ class CandidateEvaluator:
         output_dir: str,
         parameter_space: DiscreteParameterSpace,
         failed_penalty: float = 1e6,
+        objective_name: str = "multi_objective_combined",
+        objective_weights: Mapping[str, float] | None = None,
     ) -> "CandidateEvaluator":
-        """Bind to the current repository simulation and objective functions.
+        """Bind to the current simulation pipeline and a selectable objective.
 
         Imports are lazy so unit tests and parameter-space tooling do not need
         the openEMS Python bindings installed.
         """
         from optimization import run_simulation_instance
-        from objectives import multi_objective_combined
+        from objectives import (
+            maximize_bandwidth_in_band,
+            maximize_impedance_smoothness,
+            minimize_max_s11_in_band,
+            minimize_s11_in_band,
+            multi_objective_combined,
+        )
+
+        objective_functions = {
+            "maximize_bandwidth_in_band": maximize_bandwidth_in_band,
+            "minimize_max_s11_in_band": minimize_max_s11_in_band,
+            "minimize_s11_in_band": minimize_s11_in_band,
+            "maximize_impedance_smoothness": maximize_impedance_smoothness,
+        }
+        if objective_name == "multi_objective_combined":
+            weights = dict(objective_weights or {})
+            objective_function = lambda results, f_min=None, f_max=None: multi_objective_combined(
+                results,
+                f_min=f_min,
+                f_max=f_max,
+                weight_s11=float(weights.get("s11", 1.0)),
+                weight_smooth=float(weights.get("smoothness", 0.0053)),
+            )
+        elif objective_name in objective_functions:
+            objective_function = objective_functions[objective_name]
+        else:
+            raise ValueError(f"Unknown objective function: {objective_name}")
 
         return cls(
             config_file=config_file,
             output_dir=output_dir,
             parameter_space=parameter_space,
             simulation_runner=run_simulation_instance,
-            objective_function=multi_objective_combined,
+            objective_function=objective_function,
             failed_penalty=failed_penalty,
         )
 
