@@ -88,3 +88,35 @@ The returned plan includes the generated candidates, measured records,
 selected intervals and total measured runtime. The selection settings and
 selected sequence are also stored in characterization.json. The selected
 intervals can be reused unchanged for subsequent evaluations in a run.
+
+## Automatic interval preparation and simulation
+
+The complete preparation and production sequence is also available through
+one API call. Preparation and production settings are independent, and their
+outputs are kept in separate subdirectories:
+
+    from multiband_fdtd import run_multiband_auto
+
+    result = run_multiband_auto(
+        config_path="design.yaml",
+        output_dir="results/automatic_run",
+        frequency_range_ghz=(0.1, 3.0),
+        profile="accurate",
+        interval_widths_ghz=(0.5, 1.0, 1.5),
+        boundary_step_ghz=0.25,
+        pilot_n_pts=41,
+        max_candidates=40,
+        minimum_overlap_ghz=0.1,
+        pilot_end_criteria_db=-10.0,
+        pilot_max_timesteps=50000,
+        pilot_threads=1,
+        threads=4,
+        smoothing_sigma_points=0.0,
+    )
+
+The output directory contains `characterization/` and `simulation/`, plus
+an `automatic_run.json` summary. The selected interval sequence is measured
+using the YAML design's configured default variable values and then reused
+unchanged for the production call. The production profile controls its own
+convergence and sampling defaults; explicit production overrides can be
+provided through `end_criteria_db`, `max_timesteps` and `n_points`.
