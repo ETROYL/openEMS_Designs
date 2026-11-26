@@ -17,7 +17,7 @@ def generate_candidate_bands(
     interval_widths_ghz: Iterable[float] = (0.5, 1.0, 1.5),
     boundary_step_ghz: float = 0.25,
     n_pts: int = 41,
-    max_candidates: int = 80,
+    max_candidates: int = 40,
 ) -> list[FrequencyBand]:
     """Generate a bounded, deterministic set of intervals for measurement.
 
@@ -90,7 +90,7 @@ def characterize_and_select_intervals(
     interval_widths_ghz: Iterable[float] = (0.5, 1.0, 1.5),
     boundary_step_ghz: float = 0.25,
     n_pts: int = 41,
-    max_candidates: int = 80,
+    max_candidates: int = 40,
     minimum_overlap_ghz: float = 0.1,
     end_criteria_db: float = -10.0,
     max_timesteps: int = 50000,
