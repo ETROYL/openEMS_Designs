@@ -103,8 +103,9 @@ def multi_objective_combined(
     sim_results, f_min=None, f_max=None, weight_s11=1.0, weight_smooth=0.0053
 ):
     """
-    Combined Objective: 70% S11 minimization + 30% Impedance smoothness.
-    Evaluates dynamically across the full spectrum if f_min/f_max are None.
+    Weighted sum of S11 minimization and impedance smoothness costs.
+    Defaults preserve the historical coefficients. Evaluates the full spectrum
+    when f_min/f_max are None.
     """
     cost_s11 = minimize_s11_in_band(sim_results, f_min=f_min, f_max=f_max)
     cost_smooth = maximize_impedance_smoothness(sim_results, f_min=f_min, f_max=f_max)
