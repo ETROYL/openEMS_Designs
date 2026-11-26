@@ -216,6 +216,7 @@ class MainWindow(QMainWindow):
         self.optimization_initial_samples = QSpinBox()
         self.optimization_initial_samples.setRange(1, 100000)
         self.optimization_initial_samples.setValue(8)
+        self.optimization_initial_label = QLabel("Initial Sobol samples")
         self.optimization_pool_size = QSpinBox()
         self.optimization_pool_size.setRange(1, 10000000)
         self.optimization_pool_size.setValue(4096)
@@ -229,7 +230,7 @@ class MainWindow(QMainWindow):
         left_settings.addRow("Combined weight — S11", self.optimization_weight_s11)
         left_settings.addRow("Combined weight — impedance smoothness", self.optimization_weight_smoothness)
         left_settings.addRow("New / additional FDTD budget", self.optimization_budget)
-        left_settings.addRow("Initial Sobol samples", self.optimization_initial_samples)
+        left_settings.addRow(self.optimization_initial_label, self.optimization_initial_samples)
 
         self.cpu_resources = detect_cpu_resources()
         self.optimization_resource_mode = QComboBox()
@@ -546,6 +547,9 @@ class MainWindow(QMainWindow):
 
     def _optimization_strategy_changed(self, index: int) -> None:
         enabled = index in (0, 1)
+        self.optimization_initial_label.setText(
+            "Initial Sobol samples" if index == 0 else "TPE startup trials"
+        )
         self.start_optimization_button.setEnabled(
             enabled and self._optimization_process.state() == QProcess.ProcessState.NotRunning
         )
