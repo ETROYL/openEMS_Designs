@@ -393,10 +393,14 @@ class MainWindow(QMainWindow):
         run_info.addWidget(self.optimization_best_label)
         run_info.addWidget(self.optimization_output_label, 1)
 
+        settings_row = QHBoxLayout()
+        settings_row.setSpacing(8)
+        settings_row.addWidget(settings_box, 3)
+        settings_row.addWidget(evaluation_box, 2)
+
         layout.addWidget(heading)
         layout.addWidget(description)
-        layout.addWidget(settings_box)
-        layout.addWidget(evaluation_box)
+        layout.addLayout(settings_row)
         layout.addLayout(controls)
         layout.addWidget(self.optimization_status)
         layout.addWidget(self.optimization_progress)
