@@ -289,7 +289,8 @@ class MainWindow(QMainWindow):
         self.statusBar().showMessage("FDTD simulation running…")
         self._simulation_process.start(
             sys.executable,
-            ["-m", "gui.simulation_runner", str(self._simulation_config_path), selected_parent,\n             self.current_config.stem if self.current_config else "design"],
+            ["-m", "gui.simulation_runner", str(self._simulation_config_path), selected_parent,
+             self.current_config.stem if self.current_config else "design"],
         )
 
     def stop_simulation(self) -> None:
