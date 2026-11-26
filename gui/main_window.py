@@ -2,12 +2,15 @@
 from __future__ import annotations
 
 import json
+import math
 import sys
 import tempfile
 from datetime import datetime
 from pathlib import Path
 
 import yaml
+from matplotlib.backends.backend_qtagg import FigureCanvasQTAgg as FigureCanvas
+from matplotlib.figure import Figure
 from PySide6.QtCore import Qt, QProcess
 from PySide6.QtGui import QIcon, QPixmap
 from PySide6.QtWidgets import (
@@ -37,6 +40,10 @@ class MainWindow(QMainWindow):
         self.last_simulation_config: Path | None = None
         self._simulation_stdout_buffer = ""
         self._optimization_stdout_buffer = ""
+        self._optimization_steps: list[int] = []
+        self._optimization_objectives: list[float] = []
+        self._optimization_best_steps: list[int] = []
+        self._optimization_best_values: list[float] = []
         self._optimization_run_dir = None
         self._optimization_stop_file = None
         self._optimization_pause_file = None
@@ -234,6 +241,22 @@ class MainWindow(QMainWindow):
         self.optimization_log = QPlainTextEdit()
         self.optimization_log.setReadOnly(True)
         self.optimization_log.setPlaceholderText("Optimization progress and evaluation output will appear here…")
+        self.optimization_log.setMinimumWidth(420)
+
+        # Embedded live convergence chart, displayed beside the textual console.
+        self.optimization_figure = Figure(figsize=(5.0, 3.8), tight_layout=True)
+        self.optimization_canvas = FigureCanvas(self.optimization_figure)
+        self.optimization_canvas.setMinimumWidth(340)
+        self.optimization_axes = self.optimization_figure.add_subplot(111)
+        self._reset_optimization_plot()
+
+        output_panel = QWidget()
+        output_layout = QHBoxLayout(output_panel)
+        output_layout.setContentsMargins(0, 0, 0, 0)
+        output_layout.setSpacing(12)
+        output_layout.addWidget(self.optimization_log, 3)
+        output_layout.addWidget(self.optimization_canvas, 2)
+
         layout.addWidget(heading)
         layout.addWidget(description)
         layout.addLayout(settings)
@@ -243,7 +266,7 @@ class MainWindow(QMainWindow):
         layout.addWidget(self.optimization_progress_label)
         layout.addWidget(self.optimization_best_label)
         layout.addWidget(self.optimization_output_label)
-        layout.addWidget(self.optimization_log, 1)
+        layout.addWidget(output_panel, 1)
         return page
 
     def _cad_page(self) -> QWidget:
@@ -366,6 +389,70 @@ class MainWindow(QMainWindow):
         layout.addStretch(1)
         return page
 
+    def _reset_optimization_plot(self) -> None:
+        self._optimization_steps = []
+        self._optimization_objectives = []
+        self._optimization_best_steps = []
+        self._optimization_best_values = []
+        self.optimization_axes.clear()
+        self.optimization_axes.set_title("Live optimization convergence")
+        self.optimization_axes.set_xlabel("Optimization evaluation")
+        self.optimization_axes.set_ylabel("Objective cost (lower is better)")
+        self.optimization_axes.grid(True, alpha=0.25)
+        self.optimization_axes.plot([], [], marker="o", markersize=4, linewidth=1.1,
+                                    label="Objective per evaluation")
+        self.optimization_axes.plot([], [], marker=".", linewidth=2.0,
+                                    label="Best so far")
+        self.optimization_axes.legend(loc="best", fontsize=8)
+        self.optimization_canvas.draw_idle()
+
+    def _set_optimization_history(self, history: list[dict]) -> None:
+        self._reset_optimization_plot()
+        for item in history:
+            self._append_optimization_plot_point(
+                int(item.get("step", 0)),
+                item.get("status", "failed"),
+                item.get("objective"),
+                item.get("best_objective"),
+            )
+
+    def _append_optimization_plot_point(
+        self, step: int, status: str, objective, best_objective
+    ) -> None:
+        try:
+            value = float(objective)
+            if status == "ok" and math.isfinite(value):
+                self._optimization_steps.append(step)
+                self._optimization_objectives.append(value)
+        except (TypeError, ValueError):
+            pass
+        try:
+            best = float(best_objective)
+            if math.isfinite(best):
+                self._optimization_best_steps.append(step)
+                self._optimization_best_values.append(best)
+        except (TypeError, ValueError):
+            pass
+
+        self.optimization_axes.clear()
+        self.optimization_axes.set_title("Live optimization convergence")
+        self.optimization_axes.set_xlabel("Optimization evaluation")
+        self.optimization_axes.set_ylabel("Objective cost (lower is better)")
+        self.optimization_axes.grid(True, alpha=0.25)
+        if self._optimization_steps:
+            self.optimization_axes.plot(
+                self._optimization_steps, self._optimization_objectives,
+                marker="o", markersize=4, linewidth=1.1,
+                label="Objective per evaluation",
+            )
+        if self._optimization_best_steps:
+            self.optimization_axes.plot(
+                self._optimization_best_steps, self._optimization_best_values,
+                marker=".", linewidth=2.0, label="Best so far",
+            )
+        self.optimization_axes.legend(loc="best", fontsize=8)
+        self.optimization_canvas.draw_idle()
+
     def _optimization_strategy_changed(self, index: int) -> None:
         enabled = index == 0
         self.start_optimization_button.setEnabled(
@@ -460,6 +547,7 @@ class MainWindow(QMainWindow):
         self._optimization_was_completed = False
         self._optimization_stdout_buffer = ""
         self.optimization_log.clear()
+        self._reset_optimization_plot()
         self.optimization_progress.setRange(0, self.optimization_budget.value())
         self.optimization_progress.setValue(0)
         self.optimization_progress_label.setText("Evaluations: 0 / " + str(self.optimization_budget.value()))
@@ -595,11 +683,24 @@ class MainWindow(QMainWindow):
             line = raw_line.rstrip("\r")
             if not line:
                 continue
+            if line.startswith("__OPTIMIZATION_HISTORY__="):
+                try:
+                    history = json.loads(line.split("=", 1)[1])
+                    self._set_optimization_history(history)
+                except (ValueError, TypeError, json.JSONDecodeError) as exc:
+                    self.optimization_log.appendPlainText("Could not restore convergence history: " + str(exc))
+                continue
             if line.startswith("__OPTIMIZATION_PROGRESS__="):
                 try:
                     payload = json.loads(line.split("=", 1)[1])
                     completed = int(payload["completed"])
                     budget = int(payload["budget"])
+                    self._append_optimization_plot_point(
+                        int(payload.get("step", completed)),
+                        str(payload.get("status", "ok")),
+                        payload.get("objective"),
+                        payload.get("best_objective"),
+                    )
                     self.optimization_progress.setRange(0, max(1, budget))
                     self.optimization_progress.setValue(min(completed, budget))
                     self.optimization_progress_label.setText(
