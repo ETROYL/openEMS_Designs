@@ -9,7 +9,6 @@ A modular, YAML-driven Python framework for modeling, visualizing, simulating, p
 - **Parametric YAML geometry definition**: define materials, primitives (polygons/boxes), and ports using math expressions and bounded optimization variables.
 - **Two global optimization engines**:
   - **Optuna TPE sampler** (`optimization.py`): Bayesian optimization with live 2D geometry tracking.
-  - **SciPy SHGO + Nelder-Mead** (`scipy_optimization.py`): global simplicial-homology search combined with local simplex refinement, discrete parameter quantization, and evaluation caching.
 - **Pluggable cost functions** (`objectives.py`): S<sub>11</sub> minimization, worst-case S<sub>11</sub>, in-band bandwidth, and Z<sub>in</sub> smoothness, plus a weighted combined objective.
 - **Live 2D geometry monitor**: real-time Matplotlib view of the geometry of each trial/evaluation (can be disabled for headless runs).
 - **Adaptive wavelength meshing**: grid step ≈ λ<sub>min</sub>/20 and PML air padding ≈ λ<sub>max</sub>/4, derived from the simulation frequency bounds.
@@ -65,7 +64,6 @@ python3 -c "import openEMS; import CSXCAD; print('openEMS imported successfully!
 ├── design.py              # YAML parser, expression evaluator, adaptive meshing & CSX geometry builder
 ├── objectives.py          # Cost functions: S11, worst-case S11, bandwidth, Zin smoothness, combined
 ├── optimization.py        # Optuna TPE optimizer with live geometry monitor
-├── scipy_optimization.py  # SciPy SHGO + Nelder-Mead optimizer with quantization & caching
 ├── simulate.py            # Single-run FDTD execution (invokes the openEMS engine)
 ├── postprocess.py         # S11, Zin, VSWR, far-field patterns, gain & efficiency plots
 ├── view_cad.py            # Interactive AppCSXCAD 3D geometry viewer
@@ -97,7 +95,7 @@ python3 design.py --config designs/dipole_variable.yaml
 
 ### 2. Run a global optimization
 
-Choose one of the two engines.
+The standalone command-line Optuna workflow remains available:
 
 **Method A: Optuna (TPE sampler)**. Good for exploring continuous search spaces with many variables.
 
@@ -111,27 +109,14 @@ python3 optimization.py --config designs/dipole_variable.yaml --n_trials 200
 | `--n_trials` | `30` | Number of optimization trials |
 | `--no_plot` | off | Disable the live 2D plot window (headless runs) |
 
-**Method B: SciPy (SHGO + Nelder-Mead)**. Deterministic simplicial-homology space partitioning with local simplex refinement.
-
-```bash
-python3 scipy_optimization.py --config designs/dipole_variable.yaml --max_evals 80
-```
-
-| Argument | Default | Description |
-|---|---|---|
-| `--config` | `designs/bowtie_variable.yaml` | Path to the parametric YAML design file |
-| `--max_evals` | `80` | Maximum simulation budget (hard cap) |
-| `--no_plot` | off | Disable the live 2D plot window (headless runs) |
-
 **What you get:**
 
 - **Live monitor**: a 2D XY footprint plot of the current trial's polygons and lumped port, updated before each simulation starts.
 - **Per-trial data**: every candidate is simulated in its own folder.
   - Optuna: `designs/<config_name>_opt/trial_000/`, `trial_001/`, …
-  - SciPy: `designs/<config_name>_opt_shgo/eval_001/`, `eval_002/`, …
 - **Optimal design**: `designs/<config_name>_optimized.yaml`, with all variables resolved to their optimal values and high-accuracy simulation settings applied.
 
-> Trial folders contain full FDTD field/port data, so long runs can use significant disk space. Delete the `_opt` / `_opt_shgo` folders once you have the optimized YAML.
+> Trial folders contain full FDTD field/port data, so long runs can use significant disk space. Delete the `_opt` folder once you have the optimized YAML.
 
 ### 3. Run the high-accuracy verification simulation
 
@@ -174,7 +159,6 @@ All cost functions take the simulation results (frequency vector, complex S<sub>
 ### Changing the objective
 
 - **Optuna**: in `objective_wrapper()` inside `optimization.py`, uncomment the cost line you want and comment out the others.
-- **SciPy**: in `ScipyObjectiveWrapper.__call__()` inside `scipy_optimization.py`, replace the `multi_objective_combined(...)` call (and its import from `objectives`).
 - **New objective**: add a function to `objectives.py` that accepts the results dictionary and returns a float.
 
 Failed simulations return a cost of `1e6`, so the optimizers steer away from them.
@@ -189,13 +173,6 @@ Failed simulations return a cost of `1e6`, so the optimizers steer away from the
 - Variables with `optimize: false`, or with `start == stop`, are held at their `default`.
 - Minimizes the cost over `--n_trials` trials. Each trial resolves the expressions, simulates in a trial folder, and evaluates the objective.
 - Prints the best trial, the best objective value, and the cleaned (6-decimal) optimal parameters.
-
-### SciPy SHGO + Nelder-Mead (`scipy_optimization.py`)
-
-- Uses `scipy.optimize.shgo` for global search with Nelder-Mead as the local minimizer (current settings: 64 sampling points, 3 homology iterations, local simplex limit of 30 evaluations).
-- **Quantization**: continuous optimizer values are snapped to each variable's `step` grid and clipped to `[start, stop]`, so the geometry stays on realistic increments.
-- **Memoization**: identical quantized parameter sets are never re-simulated. Cached results do not count toward the budget.
-- **Budget cap**: `--max_evals` limits the number of real FDTD runs. Because SHGO's initial sampling can consume much of a small budget, use a comfortably larger `--max_evals` if you want local refinement to run.
 
 ---
 
@@ -241,7 +218,7 @@ openEMS uses OpenMP. The thread count is controlled by `OMP_NUM_THREADS`:
   python3 optimization.py --config designs/dipole_variable.yaml
   ```
 
-- `simulate.py`, `postprocess.py` and `scipy_optimization.py` currently set it inside the script, which overrides any value exported in the shell. Edit this line to match your CPU:
+- `simulate.py` and `postprocess.py` currently set it inside the script, which overrides any value exported in the shell. Edit this line to match your CPU:
 
   ```python
   os.environ["OMP_NUM_THREADS"] = "16"
@@ -357,7 +334,7 @@ simulation:
 
 ## 🧪 New discrete optimizer foundation (experimental branch)
 
-The feature branch `feature/discrete-surrogate-optimizer` introduces the first building blocks for an integer-grid, surrogate-assisted optimizer. The existing Optuna and SciPy optimization scripts are unchanged.
+The feature branch `feature/discrete-surrogate-optimizer` introduces the first building blocks for an integer-grid, surrogate-assisted optimizer. The GUI now integrates the ETROYL discrete surrogate optimizer and Optuna TPE through a shared discrete evaluation architecture. The former standalone SciPy SHGO + Nelder–Mead script has been removed from this branch.
 
 Current modules:
 
@@ -382,7 +359,7 @@ The branch also adds optimizer/evaluator.py, a testable adapter that maps intege
 
 ### Discrete surrogate optimizer (experimental)
 
-The new integer-grid optimizer runs independently of the existing Optuna and SciPy scripts. It uses a scrambled Sobol initial design, then a Gaussian-process surrogate with expected improvement to select additional discrete candidates. SQLite stores each unique geometry evaluation so runs can be resumed.
+The integer-grid optimizer is integrated into the GUI alongside Optuna TPE. It uses a scrambled Sobol initial design, then a Gaussian-process surrogate with expected improvement to select additional discrete candidates. SQLite stores each unique geometry evaluation so runs can be resumed.
 
 Run from the repository root:
 
