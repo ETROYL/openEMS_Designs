@@ -8,9 +8,10 @@ from pathlib import Path
 
 import yaml
 from PySide6.QtCore import Qt, QProcess
+from PySide6.QtGui import QPixmap
 from PySide6.QtWidgets import (
     QFileDialog, QLabel, QMainWindow, QMessageBox, QPlainTextEdit,
-    QPushButton, QTabWidget, QToolBar, QVBoxLayout, QWidget,
+    QPushButton, QScrollArea, QTabWidget, QToolBar, QVBoxLayout, QWidget,
 )
 
 
@@ -24,6 +25,13 @@ class MainWindow(QMainWindow):
         self.current_config: Path | None = None
         self._preview_config_path: Path | None = None
         self._simulation_config_path: Path | None = None
+        self.last_simulation_dir: Path | None = None
+        self.last_simulation_config: Path | None = None
+        self._postprocess_process = QProcess(self)
+        self._postprocess_process.readyReadStandardOutput.connect(self._postprocess_stdout)
+        self._postprocess_process.readyReadStandardError.connect(self._postprocess_stderr)
+        self._postprocess_process.finished.connect(self._postprocess_finished)
+        self._postprocess_process.errorOccurred.connect(self._postprocess_error)
 
         self._cad_process = QProcess(self)
         self._cad_process.readyReadStandardOutput.connect(self._cad_stdout)
@@ -61,10 +69,7 @@ class MainWindow(QMainWindow):
         ), "Optimization")
         self.tabs.addTab(self._cad_page(), "CAD Preview")
         self.tabs.addTab(self._simulation_page(), "Simulation")
-        self.tabs.addTab(self._placeholder_page(
-            "Results",
-            "S-parameters, impedance, VSWR, far-field and optimization-history visualizations."
-        ), "Results")
+        self.tabs.addTab(self._results_page(), "Results")
         self.statusBar().showMessage("Ready — open a YAML design to begin")
 
     def _editor_page(self) -> QWidget:
@@ -129,6 +134,52 @@ class MainWindow(QMainWindow):
         layout.addWidget(self.run_simulation_button)
         layout.addWidget(self.stop_simulation_button)
         layout.addWidget(self.simulation_log, 1)
+        return page
+
+    def _results_page(self) -> QWidget:
+        page = QWidget()
+        layout = QVBoxLayout(page)
+        heading = QLabel("Simulation results")
+        heading.setStyleSheet("font-size: 20px; font-weight: 600;")
+        description = QLabel(
+            "Post-process the most recent successful FDTD run using the design snapshot "
+            "saved with that simulation. The existing postprocess.py computes port response, "
+            "impedance, VSWR and NF2FF radiation results."
+        )
+        description.setWordWrap(True)
+        self.results_status = QLabel("Run an FDTD simulation first.")
+        self.results_status.setWordWrap(True)
+        self.run_postprocess_button = QPushButton("Run post-processing")
+        self.run_postprocess_button.setEnabled(False)
+        self.run_postprocess_button.clicked.connect(self.start_postprocessing)
+        self.results_log = QPlainTextEdit()
+        self.results_log.setReadOnly(True)
+        self.results_log.setMaximumHeight(150)
+        self.results_log.setPlaceholderText("Post-processing output will appear here…")
+
+        self.s11_plot_label = QLabel("S-parameter / impedance plot will appear here.")
+        self.s11_plot_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        self.s11_plot_label.setMinimumHeight(420)
+        self.s11_plot_label.setStyleSheet("background: palette(alternate-base);")
+        self.radiation_plot_label = QLabel("Radiation / far-field plot will appear here.")
+        self.radiation_plot_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        self.radiation_plot_label.setMinimumHeight(480)
+        self.radiation_plot_label.setStyleSheet("background: palette(alternate-base);")
+
+        plots_widget = QWidget()
+        plots_layout = QVBoxLayout(plots_widget)
+        plots_layout.addWidget(self.s11_plot_label)
+        plots_layout.addWidget(self.radiation_plot_label)
+        scroll = QScrollArea()
+        scroll.setWidgetResizable(True)
+        scroll.setWidget(plots_widget)
+
+        layout.addWidget(heading)
+        layout.addWidget(description)
+        layout.addWidget(self.results_status)
+        layout.addWidget(self.run_postprocess_button)
+        layout.addWidget(self.results_log)
+        layout.addWidget(scroll, 1)
         return page
 
     @staticmethod
@@ -282,6 +333,14 @@ class MainWindow(QMainWindow):
             return
 
         self._simulation_config_path = self._write_temporary_config("etroyl_gui_simulation_")
+        self.last_simulation_dir = None
+        self.last_simulation_config = None
+        self.run_postprocess_button.setEnabled(False)
+        self.results_status.setText("Waiting for the FDTD simulation to complete successfully.")
+        self.s11_plot_label.setText("S-parameter / impedance plot will appear here.")
+        self.s11_plot_label.setPixmap(QPixmap())
+        self.radiation_plot_label.setText("Radiation / far-field plot will appear here.")
+        self.radiation_plot_label.setPixmap(QPixmap())
         self.simulation_log.clear()
         self.simulation_log.appendPlainText("Launching standalone FDTD simulation…")
         self.run_simulation_button.setEnabled(False)
@@ -329,7 +388,12 @@ class MainWindow(QMainWindow):
     def _simulation_stdout(self) -> None:
         data = bytes(self._simulation_process.readAllStandardOutput()).decode(errors="replace")
         if data:
-            self.simulation_log.appendPlainText(data.rstrip())
+            for line in data.splitlines():
+                self.simulation_log.appendPlainText(line)
+                if line.startswith("SIMULATION_OUTPUT_DIR="):
+                    self.last_simulation_dir = Path(line.split("=", 1)[1].strip())
+                elif line.startswith("SIMULATION_CONFIG="):
+                    self.last_simulation_config = Path(line.split("=", 1)[1].strip())
 
     def _simulation_stderr(self) -> None:
         data = bytes(self._simulation_process.readAllStandardError()).decode(errors="replace")
@@ -343,10 +407,88 @@ class MainWindow(QMainWindow):
             self._simulation_config_path.unlink(missing_ok=True)
             self._simulation_config_path = None
         if exit_code == 0:
+            if self.last_simulation_dir and self.last_simulation_config and self.last_simulation_dir.is_dir() and self.last_simulation_config.is_file():
+                self.run_postprocess_button.setEnabled(True)
+                self.results_status.setText(f"Ready to post-process: {self.last_simulation_dir}")
+            else:
+                self.results_status.setText("Simulation completed, but its output snapshot could not be located.")
             self.statusBar().showMessage("FDTD simulation completed")
         else:
             self.statusBar().showMessage(f"FDTD simulation exited with code {exit_code}")
             self.simulation_log.appendPlainText(f"Simulation process exited with code {exit_code}.")
+
+    def start_postprocessing(self) -> None:
+        if self._postprocess_process.state() != QProcess.ProcessState.NotRunning:
+            QMessageBox.information(self, "Post-processing", "Post-processing is already running.")
+            return
+        if not self.last_simulation_dir or not self.last_simulation_config:
+            QMessageBox.warning(self, "Post-processing", "Run a successful FDTD simulation first.")
+            return
+        if not self.last_simulation_dir.is_dir() or not self.last_simulation_config.is_file():
+            QMessageBox.warning(self, "Post-processing", "The saved simulation output or design snapshot is missing.")
+            return
+
+        self.results_log.clear()
+        self.results_log.appendPlainText("Starting post-processing of the latest simulation…")
+        self.run_postprocess_button.setEnabled(False)
+        self.results_status.setText(f"Processing: {self.last_simulation_dir}")
+        self._postprocess_process.start(
+            sys.executable,
+            [
+                "-m", "postprocess",
+                "--config", str(self.last_simulation_config),
+                "--sim-dir", str(self.last_simulation_dir),
+                "--no-show",
+            ],
+        )
+
+    def _postprocess_stdout(self) -> None:
+        data = bytes(self._postprocess_process.readAllStandardOutput()).decode(errors="replace")
+        if data:
+            self.results_log.appendPlainText(data.rstrip())
+
+    def _postprocess_stderr(self) -> None:
+        data = bytes(self._postprocess_process.readAllStandardError()).decode(errors="replace")
+        if data:
+            self.results_log.appendPlainText(data.rstrip())
+
+    def _postprocess_finished(self, exit_code: int, _exit_status) -> None:
+        self.run_postprocess_button.setEnabled(
+            bool(self.last_simulation_dir and self.last_simulation_config)
+        )
+        if exit_code == 0 and self.last_simulation_dir:
+            self._load_result_plot(self.s11_plot_label, self.last_simulation_dir / "s11_plot.png")
+            self._load_result_plot(self.radiation_plot_label, self.last_simulation_dir / "radiation_plot.png")
+            self.results_status.setText(f"Post-processing complete. Results saved in: {self.last_simulation_dir}")
+            self.statusBar().showMessage("Post-processing completed")
+        else:
+            self.results_status.setText("Post-processing failed. See the log for details.")
+            self.results_log.appendPlainText(f"Post-processing process exited with code {exit_code}.")
+            self.statusBar().showMessage("Post-processing failed")
+
+    @staticmethod
+    def _load_result_plot(label: QLabel, image_path: Path) -> None:
+        pixmap = QPixmap(str(image_path))
+        if pixmap.isNull():
+            label.setPixmap(QPixmap())
+            label.setText(f"Could not load plot: {image_path}")
+            return
+        label.setText("")
+        label.setPixmap(pixmap.scaled(
+            max(1, label.width() - 20), 600,
+            Qt.AspectRatioMode.KeepAspectRatio,
+            Qt.TransformationMode.SmoothTransformation,
+        ))
+
+    def _postprocess_error(self, _error) -> None:
+        self.run_postprocess_button.setEnabled(
+            bool(self.last_simulation_dir and self.last_simulation_config)
+        )
+        self.results_status.setText("Could not start post-processing. Check Python and Matplotlib dependencies.")
+        self.results_log.appendPlainText(
+            "Could not start the post-processing process. Check the Python environment and openEMS imports."
+        )
+        self.statusBar().showMessage("Post-processing failed to start")
 
     def _simulation_error(self, _error) -> None:
         self.run_simulation_button.setEnabled(True)
