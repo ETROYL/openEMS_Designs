@@ -240,7 +240,10 @@ class MainWindow(QMainWindow):
         self.optimization_workers.setRange(1, int(self.cpu_resources["physical_cores"]))
         self.optimization_workers.setValue(min(4, int(self.cpu_resources["physical_cores"])))
         self.optimization_threads = QSpinBox()
-        self.optimization_threads.setRange(1, int(self.cpu_resources["logical_threads"]))
+        # Benchmarking on the target workstation showed that more than four
+        # threads per FDTD worker reduces throughput; keep the GUI within the
+        # tested operating range.
+        self.optimization_threads.setRange(1, min(4, int(self.cpu_resources["logical_threads"])))
         self.optimization_threads.setValue(min(2, int(self.cpu_resources["logical_threads"])))
         self.optimization_workers.valueChanged.connect(self._optimization_resource_mode_changed)
         self.optimization_threads.valueChanged.connect(self._optimization_resource_mode_changed)
