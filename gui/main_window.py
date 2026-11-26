@@ -329,6 +329,11 @@ class MainWindow(QMainWindow):
                 "neutral",
             )
 
+    def _optimization_objective_changed(self, _index: int) -> None:
+        combined = self.optimization_objective.currentData() == "multi_objective_combined"
+        self.optimization_weight_s11.setEnabled(combined)
+        self.optimization_weight_smoothness.setEnabled(combined)
+
     def start_optimization(self) -> None:
         if self._optimization_process.state() != QProcess.ProcessState.NotRunning:
             QMessageBox.information(self, "Optimization", "An optimization is already running.")
@@ -359,6 +364,11 @@ class MainWindow(QMainWindow):
                 raise ValueError("No active discrete optimization variables were found in the YAML.")
             if self.optimization_initial_samples.value() > self.optimization_budget.value():
                 raise ValueError("Initial Sobol samples cannot exceed the evaluation budget.")
+            objective_name = str(self.optimization_objective.currentData())
+            weight_s11 = self.optimization_weight_s11.value()
+            weight_smoothness = self.optimization_weight_smoothness.value()
+            if objective_name == "multi_objective_combined" and weight_s11 == 0 and weight_smoothness == 0:
+                raise ValueError("At least one combined-objective weight must be greater than zero.")
         except Exception as exc:
             QMessageBox.warning(self, "Optimization configuration", str(exc))
             return
@@ -374,15 +384,32 @@ class MainWindow(QMainWindow):
             run_dir.mkdir(parents=True, exist_ok=False)
             snapshot = run_dir / "config.yaml"
             snapshot.write_text(self.editor.toPlainText(), encoding="utf-8")
-            stop_file = run_dir / "STOP_REQUESTED"
+            metadata_path = run_dir / "run_settings.json"
+            metadata = {
+                "budget": self.optimization_budget.value(),
+                "initial_samples": self.optimization_initial_samples.value(),
+                "pool_size": self.optimization_pool_size.value(),
+                "seed": self.optimization_seed.value(),
+                "objective": objective_name,
+                "weight_s11": weight_s11,
+                "weight_smoothness": weight_smoothness,
+            }
+            metadata_path.write_text(json.dumps(metadata, indent=2), encoding="utf-8")
         except OSError as exc:
             QMessageBox.critical(self, "Optimization output", str(exc))
             return
 
         self._optimization_run_dir = run_dir
-        self._optimization_stop_file = stop_file
+        self._optimization_config_path = snapshot
+        self._optimization_metadata_path = metadata_path
+        self._optimization_stop_file = run_dir / "STOP_REQUESTED"
+        self._optimization_pause_file = run_dir / "PAUSE_REQUESTED"
+        self._optimization_stop_file.unlink(missing_ok=True)
+        self._optimization_pause_file.unlink(missing_ok=True)
         self.last_best_design_path = None
         self._optimization_stop_requested = False
+        self._optimization_pause_requested = False
+        self._optimization_was_completed = False
         self._optimization_stdout_buffer = ""
         self.optimization_log.clear()
         self.optimization_progress.setRange(0, self.optimization_budget.value())
@@ -391,44 +418,102 @@ class MainWindow(QMainWindow):
         self.optimization_best_label.setText("Best objective: —")
         self.optimization_output_label.setText("Output: " + str(run_dir))
         self.load_best_design_button.setEnabled(False)
+        self.resume_optimization_button.setEnabled(False)
+        self.optimization_log.appendPlainText("Objective: " + objective_name)
+        if objective_name == "multi_objective_combined":
+            self.optimization_log.appendPlainText(
+                f"Combined weights: S11={weight_s11:g}, impedance smoothness={weight_smoothness:g}"
+            )
+        self._launch_optimization_process()
+
+    def _launch_optimization_process(self) -> None:
+        if not self._optimization_metadata_path or not self._optimization_config_path:
+            QMessageBox.warning(self, "Optimization", "The saved optimization run settings are missing.")
+            return
+        try:
+            metadata = json.loads(self._optimization_metadata_path.read_text(encoding="utf-8"))
+        except (OSError, json.JSONDecodeError) as exc:
+            QMessageBox.critical(self, "Optimization", "Could not read run settings: " + str(exc))
+            return
+
+        self._optimization_stdout_buffer = ""
         self.start_optimization_button.setEnabled(False)
+        self.pause_optimization_button.setEnabled(True)
+        self.resume_optimization_button.setEnabled(False)
         self.stop_optimization_button.setEnabled(True)
         self._set_optimization_status("OPTIMIZATION RUNNING", "running")
-        self.optimization_log.appendPlainText("Launching ETROYL discrete optimizer…")
+        self.optimization_log.appendPlainText("Launching / resuming ETROYL discrete optimizer…")
         self.statusBar().showMessage("Optimization running…")
-
         self._optimization_process.setWorkingDirectory(str(Path(__file__).resolve().parents[1]))
         self._optimization_process.start(
             sys.executable,
             [
                 "-m", "gui.optimization_runner",
-                "--config", str(snapshot),
-                "--run-dir", str(run_dir),
-                "--budget", str(self.optimization_budget.value()),
-                "--initial-samples", str(self.optimization_initial_samples.value()),
-                "--pool-size", str(self.optimization_pool_size.value()),
-                "--seed", str(self.optimization_seed.value()),
-                "--stop-file", str(stop_file),
+                "--config", str(self._optimization_config_path),
+                "--run-dir", str(self._optimization_run_dir),
+                "--budget", str(metadata["budget"]),
+                "--initial-samples", str(metadata["initial_samples"]),
+                "--pool-size", str(metadata["pool_size"]),
+                "--seed", str(metadata["seed"]),
+                "--objective", str(metadata["objective"]),
+                "--weight-s11", str(metadata["weight_s11"]),
+                "--weight-smoothness", str(metadata["weight_smoothness"]),
+                "--stop-file", str(self._optimization_stop_file),
+                "--pause-file", str(self._optimization_pause_file),
             ],
         )
+
+    def pause_optimization(self) -> None:
+        if self._optimization_process.state() == QProcess.ProcessState.NotRunning:
+            return
+        try:
+            self._optimization_pause_file.write_text("pause requested by GUI", encoding="utf-8")
+        except OSError as exc:
+            self.optimization_log.appendPlainText("Could not write pause request: " + str(exc))
+            return
+        self._optimization_pause_requested = True
+        self.pause_optimization_button.setEnabled(False)
+        self._set_optimization_status(
+            "PAUSE REQUESTED — waiting for the current FDTD evaluation to finish",
+            "running",
+        )
+        self.optimization_log.appendPlainText(
+            "Pause requested. The current FDTD evaluation will finish, then the run will be saved for resumption."
+        )
+
+    def resume_optimization(self) -> None:
+        if self._optimization_process.state() != QProcess.ProcessState.NotRunning:
+            return
+        if not self._optimization_run_dir or not self._optimization_pause_file:
+            QMessageBox.warning(self, "Resume optimization", "There is no paused optimization run to resume.")
+            return
+        if self._optimization_stop_file and self._optimization_stop_file.exists():
+            QMessageBox.information(self, "Resume optimization", "This run was stopped, not paused. Start a new run instead.")
+            return
+        if not self._optimization_pause_file.exists():
+            QMessageBox.information(self, "Resume optimization", "The run is not in a paused state.")
+            return
+        self._optimization_pause_file.unlink(missing_ok=True)
+        self._optimization_pause_requested = False
+        self._launch_optimization_process()
 
     def stop_optimization(self) -> None:
         if self._optimization_process.state() == QProcess.ProcessState.NotRunning:
             return
-        if self._optimization_stop_file:
-            try:
-                self._optimization_stop_file.write_text("stop requested by GUI", encoding="utf-8")
-            except OSError as exc:
-                self.optimization_log.appendPlainText("Could not write stop request: " + str(exc))
-                return
+        try:
+            self._optimization_stop_file.write_text("stop requested by GUI", encoding="utf-8")
+        except OSError as exc:
+            self.optimization_log.appendPlainText("Could not write stop request: " + str(exc))
+            return
         self._optimization_stop_requested = True
+        self.pause_optimization_button.setEnabled(False)
         self.stop_optimization_button.setEnabled(False)
         self._set_optimization_status(
             "STOP REQUESTED — waiting for the current FDTD evaluation to finish",
             "running",
         )
         self.optimization_log.appendPlainText(
-            "Stop requested. The current FDTD evaluation will finish before another candidate is launched."
+            "Stop requested. The current FDTD evaluation will finish; this run will not be resumable from this GUI session."
         )
 
     def load_best_design(self) -> None:
