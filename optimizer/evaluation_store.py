@@ -125,12 +125,12 @@ class EvaluationStore:
             raise ValueError("status must be 'ok', 'failed', or None")
         if status is None:
             rows = self._connection.execute(
-                "SELECT * FROM evaluations ORDER BY created_at, fingerprint"
+                "SELECT * FROM evaluations ORDER BY rowid"
             ).fetchall()
         else:
             rows = self._connection.execute(
                 "SELECT * FROM evaluations WHERE status = ? "
-                "ORDER BY created_at, fingerprint", (status,)
+                "ORDER BY rowid", (status,)
             ).fetchall()
         return [self._from_row(row) for row in rows]
 
