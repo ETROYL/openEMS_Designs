@@ -21,6 +21,28 @@ def evaluate_value(val, var_dict):
         return {k: evaluate_value(v, var_dict) for k, v in val.items()}
     return val
 
+def get_simulation_settings(cfg, profile="simulation"):
+    """Return solver/frequency settings for the requested workflow.
+
+    The base simulation block defines the standalone/high-fidelity setup.
+    optimization.evaluation may override any of those settings for faster
+    candidate evaluations. Geometry, materials, mesh unit and ports remain shared.
+    """
+    if profile not in ("simulation", "optimization"):
+        raise ValueError("profile must be 'simulation' or 'optimization'")
+
+    settings = dict(cfg.get('simulation') or {})
+    if profile == "optimization":
+        optimization = cfg.get('optimization') or {}
+        if not isinstance(optimization, dict):
+            raise ValueError("'optimization' must be a mapping")
+        evaluation = optimization.get('evaluation') or {}
+        if not isinstance(evaluation, dict):
+            raise ValueError("'optimization.evaluation' must be a mapping")
+        settings.update(evaluation)
+    return settings
+
+
 def load_config(config_path, active_vars=None):
     if not os.path.exists(config_path):
         raise FileNotFoundError(f"Configuration file '{config_path}' not found.")
@@ -45,12 +67,16 @@ def load_config(config_path, active_vars=None):
         return evaluate_value(cfg, var_dict)
     return cfg
 
-def build_design(CSX, FDTD, config_file='./bowtie.yaml', active_vars=None, enable_nf2ff=True):
+def build_design(
+    CSX, FDTD, config_file='./bowtie.yaml', active_vars=None,
+    enable_nf2ff=True, simulation_profile="simulation",
+):
     cfg = load_config(config_file, active_vars=active_vars)
+    simulation = get_simulation_settings(cfg, simulation_profile)
 
     unit = float(cfg.get('simulation', {}).get('unit', 1.0))
-    fstart = float(cfg['simulation']['fstart']) * 1e9
-    fstop  = float(cfg['simulation']['fstop'])  * 1e9
+    fstart = float(simulation['fstart']) * 1e9
+    fstop  = float(simulation['fstop'])  * 1e9
     
     C0 = 299792458.0
 
