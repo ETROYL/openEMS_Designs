@@ -209,7 +209,11 @@ class AutomaticRunTests(unittest.TestCase):
                 smoothing_sigma_points=1.5,
             )
 
-        self.assertEqual(result["selected_bands"], selected)
+        self.assertEqual(
+            [(b.fstart_ghz, b.fstop_ghz) for b in result["selected_bands"]],
+            [(b.fstart_ghz, b.fstop_ghz) for b in selected],
+        )
+        self.assertTrue(all(b.n_pts > 41 for b in result["selected_bands"]))
         self.assertEqual(result["planning_manifest_path"],
                          "/tmp/plan/characterization.json")
         self.assertEqual(
@@ -221,7 +225,7 @@ class AutomaticRunTests(unittest.TestCase):
             output / "simulation",
         )
         self.assertEqual(
-            run_production.call_args.kwargs["bands"], selected
+            run_production.call_args.kwargs["bands"], result["selected_bands"]
         )
         self.assertEqual(run_production.call_args.kwargs["profile"], "accurate")
         self.assertEqual(run_production.call_args.kwargs["end_criteria_db"], -35.0)
