@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import math
 from pathlib import Path
 
 import yaml
@@ -95,13 +96,33 @@ def main() -> int:
             seed=None if args.seed < 0 else args.seed,
         )
 
+        # Restore the full sequence when resuming a paused run.
+        history = []
+        historical_best = None
+        for step, previous in enumerate(store.list_results(), start=1):
+            if previous.status == "ok":
+                try:
+                    value = float(previous.objective)
+                    if math.isfinite(value):
+                        historical_best = value if historical_best is None else min(historical_best, value)
+                except (TypeError, ValueError):
+                    pass
+            history.append({
+                "step": step,
+                "status": previous.status,
+                "objective": previous.objective if previous.status == "ok" else None,
+                "best_objective": historical_best,
+            })
+        print("__OPTIMIZATION_HISTORY__=" + json.dumps(history, allow_nan=False), flush=True)
+
         def report(result, completed: int, budget: int) -> None:
             best = store.best()
             payload = {
                 "completed": store.count(),
                 "budget": args.budget,
+                "step": store.count(),
                 "status": result.status,
-                "objective": result.objective,
+                "objective": result.objective if result.status == "ok" else None,
                 "elapsed_seconds": result.elapsed_seconds,
                 "parameters": result.parameters,
                 "best_objective": best.objective if best else None,
