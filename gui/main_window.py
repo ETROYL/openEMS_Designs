@@ -910,6 +910,19 @@ class MainWindow(QMainWindow):
         if data:
             self.optimization_log.appendPlainText(data.rstrip())
 
+    def _has_stored_optimization_history(self) -> bool:
+        if not self._optimization_run_dir:
+            return False
+        database = self._optimization_run_dir / "evaluations.sqlite"
+        if not database.is_file():
+            return False
+        try:
+            with sqlite3.connect(str(database)) as connection:
+                row = connection.execute("SELECT COUNT(*) FROM evaluations").fetchone()
+            return bool(row and int(row[0]) > 0)
+        except sqlite3.Error:
+            return False
+
     def _optimization_finished(self, exit_code: int, _exit_status) -> None:
         remaining = bytes(self._optimization_process.readAllStandardOutput()).decode(errors="replace")
         self._consume_optimization_output(remaining, flush=True)
@@ -936,12 +949,14 @@ class MainWindow(QMainWindow):
             self.statusBar().showMessage("Optimization completed")
         else:
             self.resume_optimization_button.setEnabled(False)
+            self.continue_optimization_button.setEnabled(self._has_stored_optimization_history())
             self._set_optimization_status("OPTIMIZATION FAILED — PROCESS EXIT CODE " + str(exit_code), "failure")
             self.statusBar().showMessage("Optimization failed")
             self.optimization_log.appendPlainText("Optimization process exited with code " + str(exit_code) + ".")
 
     def _optimization_error(self, _error) -> None:
         self.start_optimization_button.setEnabled(self.optimization_strategy.currentIndex() == 0)
+        self.continue_optimization_button.setEnabled(self._has_stored_optimization_history())
         self.pause_optimization_button.setEnabled(False)
         self.resume_optimization_button.setEnabled(False)
         self.stop_optimization_button.setEnabled(False)
