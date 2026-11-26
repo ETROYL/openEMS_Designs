@@ -320,3 +320,129 @@ def run_multiband(
         "total_runtime_seconds": manifest["total_runtime_seconds"],
         "output_dir": str(root), "profile": profile,
     }
+
+
+def run_multiband_auto(
+    config_path: str | Path,
+    output_dir: str | Path,
+    frequency_range_ghz: tuple[float, float],
+    *,
+    profile: str = "optimization",
+    interval_widths_ghz: Iterable[float] = (0.5, 1.0, 1.5),
+    boundary_step_ghz: float = 0.25,
+    pilot_n_pts: int = 41,
+    max_candidates: int = 40,
+    minimum_overlap_ghz: float = 0.1,
+    pilot_end_criteria_db: float = -10.0,
+    pilot_max_timesteps: int = 50000,
+    pilot_threads: int = 1,
+    n_points: int | None = None,
+    end_criteria_db: float | None = None,
+    max_timesteps: int | None = None,
+    threads: int = 1,
+    smoothing_sigma_points: float = 0.0,
+) -> dict[str, Any]:
+    """Prepare an interval plan, then run the requested production profile.
+
+    Pilot measurements and production simulations are written to separate
+    subdirectories and use independent solver settings. The selected interval
+    sequence is fixed for the production call.
+    """
+    profiles = {
+        "optimization": (-15.0, 200000, 301),
+        "accurate": (-40.0, 1000000, 1024),
+    }
+    if profile not in profiles:
+        raise ValueError("profile must be 'optimization' or 'accurate'.")
+    default_db, default_steps, default_points = profiles[profile]
+    production_db = default_db if end_criteria_db is None else float(end_criteria_db)
+    production_steps = default_steps if max_timesteps is None else int(max_timesteps)
+    production_points = default_points if n_points is None else int(n_points)
+    if not math.isfinite(production_db) or production_db >= 0:
+        raise ValueError("end_criteria_db must be finite and negative.")
+    if production_steps <= 0 or production_points < 2 or threads < 1:
+        raise ValueError("Invalid production max_timesteps, n_points or threads.")
+    if smoothing_sigma_points < 0:
+        raise ValueError("smoothing_sigma_points cannot be negative.")
+    if pilot_threads < 1 or pilot_max_timesteps < 1:
+        raise ValueError("Pilot max_timesteps and threads must be positive.")
+    if not math.isfinite(pilot_end_criteria_db) or pilot_end_criteria_db >= 0:
+        raise ValueError("pilot_end_criteria_db must be finite and negative.")
+
+    root = Path(output_dir).expanduser().resolve()
+    root.parent.mkdir(parents=True, exist_ok=True)
+    root.mkdir(parents=False, exist_ok=False)
+
+    # Import locally to avoid a module cycle: characterization uses _run_band.
+    from .characterization import characterize_and_select_intervals
+
+    plan = characterize_and_select_intervals(
+        config_path=config_path,
+        output_dir=root / "characterization",
+        frequency_range_ghz=frequency_range_ghz,
+        interval_widths_ghz=interval_widths_ghz,
+        boundary_step_ghz=boundary_step_ghz,
+        n_pts=pilot_n_pts,
+        max_candidates=max_candidates,
+        minimum_overlap_ghz=minimum_overlap_ghz,
+        end_criteria_db=pilot_end_criteria_db,
+        max_timesteps=pilot_max_timesteps,
+        threads=pilot_threads,
+    )
+    selected_bands = plan["selected_bands"]
+    if not selected_bands:
+        raise RuntimeError("Interval preparation returned an empty selection.")
+
+    production = run_multiband(
+        config_path=config_path,
+        output_dir=root / "simulation",
+        bands=selected_bands,
+        profile=profile,
+        frequency_range_ghz=frequency_range_ghz,
+        n_points=n_points,
+        end_criteria_db=end_criteria_db,
+        max_timesteps=max_timesteps,
+        threads=threads,
+        smoothing_sigma_points=smoothing_sigma_points,
+    )
+    orchestration_manifest = {
+        "profile": profile,
+        "frequency_range_ghz": list(map(float, frequency_range_ghz)),
+        "characterization_manifest": str(
+            Path(plan["manifest_path"]).resolve()
+        ),
+        "selected_intervals": [
+            {
+                "fstart_ghz": band.fstart_ghz,
+                "fstop_ghz": band.fstop_ghz,
+                "n_pts": band.n_pts,
+            }
+            for band in selected_bands
+        ],
+        "production_output_dir": production["output_dir"],
+        "pilot_settings": {
+            "end_criteria_db": float(pilot_end_criteria_db),
+            "max_timesteps": int(pilot_max_timesteps),
+            "threads": int(pilot_threads),
+            "n_pts": int(pilot_n_pts),
+        },
+        "production_settings": {
+            "end_criteria_db": production_db,
+            "max_timesteps": production_steps,
+            "n_points": production_points,
+            "threads": int(threads),
+            "smoothing_sigma_points": float(smoothing_sigma_points),
+        },
+    }
+    manifest_path = root / "automatic_run.json"
+    manifest_path.write_text(
+        json.dumps(orchestration_manifest, indent=2), encoding="utf-8"
+    )
+    return {
+        **production,
+        "planning": plan,
+        "selected_bands": selected_bands,
+        "planning_manifest_path": plan["manifest_path"],
+        "automatic_run_manifest_path": str(manifest_path),
+        "automatic_output_dir": str(root),
+    }
