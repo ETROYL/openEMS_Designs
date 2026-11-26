@@ -39,6 +39,8 @@ def get_simulation_settings(cfg, profile="simulation"):
         evaluation = optimization.get('evaluation') or {}
         if not isinstance(evaluation, dict):
             raise ValueError("'optimization.evaluation' must be a mapping")
+        if "end_criteria" in evaluation and "end_criteria_db" not in evaluation:
+            settings.pop("end_criteria_db", None)
         settings.update(evaluation)
 
     # The YAML-facing dB value is an energy ratio. openEMS expects the
