@@ -77,6 +77,7 @@ class DiscreteSurrogateOptimizer:
         *,
         progress_callback: Callable[[EvaluationResult, int, int], None] | None = None,
         stop_requested: Callable[[], bool] | None = None,
+        evaluation_settings: dict[str, Any] | None = None,
     ) -> OptimizationSummary:
         """Perform at most budget new evaluations, reporting each completed attempt.
 
@@ -236,6 +237,7 @@ class DiscreteSurrogateOptimizer:
                 objective_name,
                 dict(objective_weights or {}),
                 int(threads_per_worker),
+                dict(evaluation_settings or {}),
             ),
         ) as executor:
             if self.store.count() == 0:
