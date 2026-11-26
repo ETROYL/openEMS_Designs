@@ -48,6 +48,19 @@ class SimulationProfileTests(unittest.TestCase):
         settings = get_simulation_settings(config, "optimization")
         self.assertEqual(settings, self.config["simulation"])
 
+    def test_explicit_legacy_linear_override_takes_precedence_over_inherited_db(self):
+        config = {
+            "simulation": {"fstart": 0.1, "fstop": 1.0, "end_criteria_db": -40.0},
+            "optimization": {"evaluation": {"end_criteria": 0.025}},
+        }
+        settings = get_simulation_settings(config, "optimization")
+        self.assertEqual(settings["end_criteria"], 0.025)
+
+    def test_invalid_energy_decay_db_is_rejected(self):
+        config = {"simulation": {"fstart": 0.1, "fstop": 1.0, "end_criteria_db": 2.0}}
+        with self.assertRaises(ValueError):
+            get_simulation_settings(config, "simulation")
+
     def test_profiles_return_independent_copies(self):
         settings = get_simulation_settings(self.config, "optimization")
         settings["fstart"] = 0.5
