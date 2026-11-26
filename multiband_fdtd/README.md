@@ -5,7 +5,20 @@ simulations over frequency sub-bands, each with its own mesh, extracts complex
 port responses, and reconstructs a broadband response. Both fast optimization
 and accurate final-simulation profiles use the same execution path.
 
-## Initial API
+## Standalone command line
+
+    python3 -m multiband_fdtd \
+      --config designs/dipole.yaml \
+      --output results/dipole_multiband \
+      --bands 0.1:0.65:101,0.4:1.65:101,1.35:3.0:101 \
+      --profile accurate --frequency-range 0.1 3.0 --points 1201 --threads 4
+
+Each band receives its own YAML snapshot, mesh and output directory. Complex
+S11 and impedance are saved per band; the combined response is saved as NPZ
+and CSV, with a broadband magnitude/phase plot. The output directory must not
+already exist.
+
+## Python API
 
     from multiband_fdtd import FrequencyBand, run_multiband
 
@@ -26,12 +39,8 @@ and accurate final-simulation profiles use the same execution path.
 
 Profiles provide defaults for energy decay, timestep limit and reconstructed
 sample count. Explicit values override profile defaults. The dB energy-decay
-target is converted to the linear ratio expected by openEMS.
-
-Each band receives its own YAML snapshot, mesh and output directory. Complex
-S11 and impedance are saved per band; the combined response is saved as NPZ
-and CSV. The returned dictionary provides the existing objective-compatible
-keys: freq, s11, s11_db and z_in.
+target is converted to the linear ratio expected by openEMS. The returned
+dictionary provides objective-compatible keys: freq, s11, s11_db and z_in.
 
 Optional Gaussian low-pass smoothing operates on real and imaginary response
 components. It is disabled by default and should be chosen conservatively to
