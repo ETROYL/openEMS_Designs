@@ -711,6 +711,7 @@ class MainWindow(QMainWindow):
             weight_smoothness = self.optimization_weight_smoothness.value()
             if objective_name == "multi_objective_combined" and weight_s11 == 0 and weight_smoothness == 0:
                 raise ValueError("At least one combined-objective weight must be greater than zero.")
+            evaluation_settings = self._optimization_evaluation_settings()
         except Exception as exc:
             QMessageBox.warning(self, "Optimization configuration", str(exc))
             return
@@ -741,7 +742,7 @@ class MainWindow(QMainWindow):
                 "threads_per_worker": threads_per_worker,
                 "simulation_settings": dict(config.get("simulation") or {}),
                 "use_simulation_parameters": self.use_simulation_parameters_radio.isChecked(),
-                "evaluation_settings": self._optimization_evaluation_settings(),
+                "evaluation_settings": evaluation_settings,
             }
             metadata_path.write_text(json.dumps(metadata, indent=2), encoding="utf-8")
         except OSError as exc:
