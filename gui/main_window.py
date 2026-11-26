@@ -21,7 +21,7 @@ from PySide6.QtCore import Qt, QProcess
 from PySide6.QtGui import QIcon, QPixmap
 from PySide6.QtWidgets import (
     QComboBox, QDoubleSpinBox, QFileDialog, QFormLayout, QGroupBox, QHBoxLayout, QLabel, QMainWindow,
-    QMessageBox, QPlainTextEdit, QProgressBar, QPushButton, QScrollArea,
+    QMessageBox, QPlainTextEdit, QProgressBar, QPushButton, QRadioButton, QScrollArea,
     QSpinBox, QTabWidget, QToolBar, QVBoxLayout, QWidget,
 )
 
@@ -271,6 +271,56 @@ class MainWindow(QMainWindow):
         settings_layout.addLayout(left_settings, 1)
         settings_layout.addLayout(right_settings, 1)
         self._optimization_resource_mode_changed()
+
+        # Candidate evaluation can either inherit the YAML simulation profile
+        # or use a GUI-only override saved with this optimization run.
+        evaluation_box = QGroupBox("FDTD parameters used during optimization")
+        evaluation_layout = QVBoxLayout(evaluation_box)
+        self.use_simulation_parameters_radio = QRadioButton(
+            "Use simulation parameters for Optimization"
+        )
+        self.define_optimization_parameters_radio = QRadioButton(
+            "Define optimization-only parameters"
+        )
+        self.use_simulation_parameters_radio.setChecked(True)
+        self.use_simulation_parameters_radio.toggled.connect(
+            self._optimization_evaluation_mode_changed
+        )
+        evaluation_layout.addWidget(self.use_simulation_parameters_radio)
+        evaluation_layout.addWidget(self.define_optimization_parameters_radio)
+
+        evaluation_form = QFormLayout()
+        self.optimization_fstart = QDoubleSpinBox()
+        self.optimization_fstart.setDecimals(6)
+        self.optimization_fstart.setRange(0.000001, 1.0e6)
+        self.optimization_fstart.setSuffix(" GHz")
+        self.optimization_fstop = QDoubleSpinBox()
+        self.optimization_fstop.setDecimals(6)
+        self.optimization_fstop.setRange(0.000001, 1.0e6)
+        self.optimization_fstop.setSuffix(" GHz")
+        self.optimization_n_pts = QSpinBox()
+        self.optimization_n_pts.setRange(2, 1000000)
+        self.optimization_end_criteria_db = QDoubleSpinBox()
+        self.optimization_end_criteria_db.setDecimals(2)
+        self.optimization_end_criteria_db.setRange(-200.0, -0.01)
+        self.optimization_end_criteria_db.setSuffix(" dB")
+        self.optimization_max_timesteps = QSpinBox()
+        self.optimization_max_timesteps.setRange(1, 100000000)
+        evaluation_form.addRow("Start frequency", self.optimization_fstart)
+        evaluation_form.addRow("Stop frequency", self.optimization_fstop)
+        evaluation_form.addRow("Number of frequency points", self.optimization_n_pts)
+        evaluation_form.addRow("Energy-decay criterion", self.optimization_end_criteria_db)
+        evaluation_form.addRow("Maximum timesteps", self.optimization_max_timesteps)
+        evaluation_layout.addLayout(evaluation_form)
+        self._optimization_evaluation_controls = [
+            self.optimization_fstart, self.optimization_fstop,
+            self.optimization_n_pts, self.optimization_end_criteria_db,
+            self.optimization_max_timesteps,
+        ]
+        self._update_optimization_evaluation_defaults()
+        self._optimization_evaluation_mode_changed()
+        self.editor.textChanged.connect(self._update_optimization_evaluation_defaults)
+
         controls = QHBoxLayout()
         self.start_optimization_button = QPushButton("Start new optimization")
         self.start_optimization_button.clicked.connect(self.start_optimization)
@@ -346,6 +396,7 @@ class MainWindow(QMainWindow):
         layout.addWidget(heading)
         layout.addWidget(description)
         layout.addWidget(settings_box)
+        layout.addWidget(evaluation_box)
         layout.addLayout(controls)
         layout.addWidget(self.optimization_status)
         layout.addWidget(self.optimization_progress)
@@ -573,6 +624,44 @@ class MainWindow(QMainWindow):
             self.optimization_allocation_status.setText(str(exc))
             self.optimization_allocation_status.setStyleSheet("color: #b42318;")
 
+    def _optimization_evaluation_mode_changed(self, _checked: bool = False) -> None:
+        enabled = self.define_optimization_parameters_radio.isChecked()
+        for control in self._optimization_evaluation_controls:
+            control.setEnabled(enabled)
+
+    def _update_optimization_evaluation_defaults(self) -> None:
+        """Refresh override defaults from the YAML simulation block."""
+        try:
+            config = yaml.safe_load(self.editor.toPlainText()) or {}
+            sim = config.get("simulation") or {}
+            self.optimization_fstart.setValue(float(sim.get("fstart", 0.1)))
+            self.optimization_fstop.setValue(float(sim.get("fstop", 1.0)))
+            self.optimization_n_pts.setValue(int(sim.get("n_pts", 301)))
+            if "end_criteria_db" in sim:
+                decay_db = float(sim["end_criteria_db"])
+            else:
+                import math
+                decay_db = 10.0 * math.log10(float(sim.get("end_criteria", 1e-4)))
+            self.optimization_end_criteria_db.setValue(decay_db)
+            self.optimization_max_timesteps.setValue(int(sim.get("max_timesteps", 500000)))
+        except (yaml.YAMLError, AttributeError, TypeError, ValueError, OverflowError):
+            # Keep the last valid defaults while the YAML editor is temporarily incomplete.
+            pass
+
+    def _optimization_evaluation_settings(self) -> dict | None:
+        if self.use_simulation_parameters_radio.isChecked():
+            return None
+        settings = {
+            "fstart": self.optimization_fstart.value(),
+            "fstop": self.optimization_fstop.value(),
+            "n_pts": self.optimization_n_pts.value(),
+            "end_criteria_db": self.optimization_end_criteria_db.value(),
+            "max_timesteps": self.optimization_max_timesteps.value(),
+        }
+        if settings["fstart"] <= 0 or settings["fstop"] <= settings["fstart"]:
+            raise ValueError("Optimization frequency range must be positive and increasing.")
+        return settings
+
     def _optimization_objective_changed(self, _index: int) -> None:
         combined = self.optimization_objective.currentData() == "multi_objective_combined"
         self.optimization_weight_s11.setEnabled(combined)
@@ -651,9 +740,8 @@ class MainWindow(QMainWindow):
                 "workers": workers,
                 "threads_per_worker": threads_per_worker,
                 "simulation_settings": dict(config.get("simulation") or {}),
-                "evaluation_settings": dict(
-                    ((config.get("optimization") or {}).get("evaluation") or {})
-                ),
+                "use_simulation_parameters": self.use_simulation_parameters_radio.isChecked(),
+                "evaluation_settings": self._optimization_evaluation_settings(),
             }
             metadata_path.write_text(json.dumps(metadata, indent=2), encoding="utf-8")
         except OSError as exc:
