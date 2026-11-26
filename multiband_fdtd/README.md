@@ -62,3 +62,29 @@ A bounded set of candidate intervals can be generated before measurement:
     )
 
 The complete requested range is always retained as a fallback candidate.
+
+Measurements can be collected and a complete interval sequence selected in
+one call:
+
+    from multiband_fdtd import characterize_and_select_intervals
+
+    plan = characterize_and_select_intervals(
+        config_path="design.yaml",
+        output_dir="results/interval_characterization",
+        frequency_range_ghz=(0.1, 3.0),
+        interval_widths_ghz=(0.5, 1.0, 1.5),
+        boundary_step_ghz=0.25,
+        n_pts=41,
+        max_candidates=80,
+        minimum_overlap_ghz=0.1,
+        end_criteria_db=-10.0,
+        max_timesteps=50000,
+        threads=1,
+    )
+
+    selected_bands = plan["selected"]
+
+The returned plan includes the generated candidates, measured records,
+selected intervals and total measured runtime. The selection settings and
+selected sequence are also stored in characterization.json. The selected
+intervals can be reused unchanged for subsequent evaluations in a run.
