@@ -82,7 +82,7 @@ one call:
         threads=1,
     )
 
-    selected_bands = plan["selected"]
+    selected_bands = plan["selected_bands"]
 
 The returned plan includes the generated candidates, measured records,
 selected intervals and total measured runtime. The selection settings and
