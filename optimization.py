@@ -9,7 +9,7 @@ import matplotlib.pyplot as plt
 from matplotlib.patches import Circle, Rectangle
 from CSXCAD import ContinuousStructure
 from openEMS import openEMS
-from design import build_design, load_config
+from design import build_design, get_simulation_settings, load_config
 from objectives import (
     minimize_max_s11_in_band,
     maximize_bandwidth_in_band,
@@ -118,12 +118,13 @@ def run_simulation_instance(config_file, trial_vars, trial_dir):
     cfg = load_config(config_file, active_vars=trial_vars)
     
     unit = float(cfg.get('simulation', {}).get('unit', 1.0))
-    fstart = float(cfg['simulation']['fstart']) * 1e9
-    fstop  = float(cfg['simulation']['fstop'])  * 1e9
-    num_pts = int(cfg.get('simulation', {}).get('n_pts', 301))
-    
-    end_criteria = float(cfg.get('simulation', {}).get('end_criteria', 1e-2))
-    max_timesteps = int(cfg.get('simulation', {}).get('max_timesteps', 40000))
+    evaluation = get_simulation_settings(cfg, "optimization")
+    fstart = float(evaluation['fstart']) * 1e9
+    fstop  = float(evaluation['fstop'])  * 1e9
+    num_pts = int(evaluation.get('n_pts', 301))
+
+    end_criteria = float(evaluation.get('end_criteria', 1e-2))
+    max_timesteps = int(evaluation.get('max_timesteps', 40000))
     
     f0 = (fstart + fstop) / 2.0
     fc = (fstop - fstart)
@@ -133,7 +134,10 @@ def run_simulation_instance(config_file, trial_vars, trial_dir):
     FDTD.SetCSX(CSX)
     FDTD.SetGaussExcite(f0, fc)
 
-    port, _ = build_design(CSX, FDTD, config_file=config_file, active_vars=trial_vars, enable_nf2ff=False)
+    port, _ = build_design(
+        CSX, FDTD, config_file=config_file, active_vars=trial_vars,
+        enable_nf2ff=False, simulation_profile="optimization",
+    )
 
     xml_filename = 'geometry.xml'
     xml_path = os.path.join(trial_dir, xml_filename)
