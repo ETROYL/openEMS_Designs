@@ -650,6 +650,10 @@ class MainWindow(QMainWindow):
                 "resource_mode": resource_mode,
                 "workers": workers,
                 "threads_per_worker": threads_per_worker,
+                "simulation_settings": dict(config.get("simulation") or {}),
+                "evaluation_settings": dict(
+                    ((config.get("optimization") or {}).get("evaluation") or {})
+                ),
             }
             metadata_path.write_text(json.dumps(metadata, indent=2), encoding="utf-8")
         except OSError as exc:
