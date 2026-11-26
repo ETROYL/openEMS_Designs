@@ -10,7 +10,7 @@ import yaml
 from PySide6.QtCore import Qt, QProcess
 from PySide6.QtGui import QPixmap
 from PySide6.QtWidgets import (
-    QFileDialog, QLabel, QMainWindow, QMessageBox, QPlainTextEdit,
+    QFileDialog, QHBoxLayout, QLabel, QMainWindow, QMessageBox, QPlainTextEdit,
     QPushButton, QScrollArea, QTabWidget, QToolBar, QVBoxLayout, QWidget,
 )
 
