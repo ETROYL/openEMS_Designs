@@ -112,8 +112,9 @@ def main() -> int:
         print(f"Objective: {args.objective}", flush=True)
         if args.objective == "multi_objective_combined":
             print(f"Combined weights: S11={args.weight_s11:g}, impedance smoothness={args.weight_smoothness:g}", flush=True)
-        print(f"Completed evaluations already stored: {already_completed}/{args.budget}", flush=True)
-        print(f"Remaining evaluation budget: {remaining_budget}", flush=True)
+        print(f"Evaluations already stored: {already_completed}", flush=True)
+        print(f"Additional evaluations requested for this run target: {max(0, args.budget - already_completed)}", flush=True)
+        print(f"Total evaluation target: {args.budget}", flush=True)
         optimizer = DiscreteSurrogateOptimizer(
             space,
             evaluator,
@@ -194,7 +195,16 @@ def main() -> int:
         print(f"Best objective: {summary.best.objective:.10g}", flush=True)
         print(f"Best parameters: {summary.best.parameters}", flush=True)
         print(f"BEST_DESIGN_PATH={best_path}", flush=True)
-        if not pause_file.exists() and not stop_file.exists() and store.count() >= args.budget:
+        if (
+            not pause_file.exists()
+            and not stop_file.exists()
+            and summary.stop_reason in (
+                "evaluation budget reached",
+                "discrete search space exhausted",
+                "no unexplored candidates available",
+                "zero budget",
+            )
+        ):
             print("OPTIMIZATION_COMPLETED=1", flush=True)
     return 0
 
