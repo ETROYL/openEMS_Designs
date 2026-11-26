@@ -1,4 +1,4 @@
-"""Measured-cost dynamic programming for adaptive frequency-band selection."""
+"""Utilities for validating and selecting configured simulation intervals."""
 from __future__ import annotations
 
 from dataclasses import dataclass
@@ -30,12 +30,7 @@ def select_fastest_band_sequence(
     *,
     minimum_overlap_ghz: float = 0.0,
 ) -> list[BandCost]:
-    """Select the minimum-runtime measured intervals covering the target range.
-
-    This selector uses measured wall-clock time, not an assumed linear
-    frequency-to-mesh relationship. It only selects measured candidates and
-    never extrapolates unmeasured simulation costs.
-    """
+    """Return a valid low-runtime sequence from the supplied interval data."""
     fmin, fmax = map(float, frequency_range_ghz)
     if not (0 < fmin < fmax) or minimum_overlap_ghz < 0:
         raise ValueError("Invalid requested range or minimum overlap.")
