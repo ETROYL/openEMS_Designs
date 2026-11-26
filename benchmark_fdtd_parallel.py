@@ -16,7 +16,7 @@ import sys
 import time
 
 RESULT_PREFIX = "__THREAD_BENCHMARK_RESULT__="
-ALLOCATIONS = [(2, 2), (2, 4)]  # (number of workers, threads per worker)
+ALLOCATIONS = [(4, 3), (4, 2)]  # (number of workers, threads per worker)
 
 
 def parse_result(output: str) -> dict[str, object] | None:
@@ -36,8 +36,8 @@ def main() -> int:
         default="designs/dipole_variable_thread_benchmark.yaml",
         help="Same validated benchmark YAML used by benchmark_fdtd_threads.py",
     )
-    parser.add_argument("--repeats", type=int, default=3,
-                        help="Number of concurrent batches per allocation (default: 3)")
+    parser.add_argument("--repeats", type=int, default=5,
+                        help="Number of concurrent batches per allocation (default: 5)")
     parser.add_argument("--output-dir", default=None)
     args = parser.parse_args()
 
@@ -63,19 +63,22 @@ def main() -> int:
     print("Fixed geometry: arm_length=0.26, root_width=0.020, tip_width=0.400, feed_gap=0.002")
     print("Simulation settings: end_criteria=1e-2 (-20 dB), max_timesteps=200000, n_pts=301")
     print(f"Concurrent batches per allocation: {args.repeats}")
-    print("Allocations: 2 workers x 2 threads; 2 workers x 4 threads")
+    print("Allocations: " + "; ".join(f"{workers} workers x {threads} threads" for workers, threads in ALLOCATIONS))
     print(f"Results directory: {results_dir}")
     print("\nEach pair starts together. Avoid other heavy CPU workloads during the test.\n")
 
     rows: list[dict[str, object]] = []
+    batch_number = 0
+    total_batches = args.repeats * len(ALLOCATIONS)
     # Alternate allocation order between repeats to reduce systematic thermal bias.
     for repeat in range(1, args.repeats + 1):
         allocations = ALLOCATIONS if repeat % 2 else list(reversed(ALLOCATIONS))
         for workers, threads in allocations:
+            batch_number += 1
             batch_name = f"workers_{workers:02d}_threads_{threads:02d}_repeat_{repeat:02d}"
             batch_dir = results_dir / batch_name
             batch_dir.mkdir(parents=True, exist_ok=False)
-            print(f"[{len(rows) // 2 + 1}/{args.repeats * 2}] Starting {workers} workers x {threads} threads ...",
+            print(f"[{batch_number}/{total_batches}] Starting {workers} workers x {threads} threads ...",
                   flush=True)
 
             processes: list[tuple[int, Path, subprocess.Popen[str]]] = []
