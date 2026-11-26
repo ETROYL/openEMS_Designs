@@ -3,6 +3,9 @@ from __future__ import annotations
 
 import json
 import math
+import os
+import shutil
+import signal
 import sys
 import tempfile
 import sqlite3
@@ -55,6 +58,7 @@ class MainWindow(QMainWindow):
         self._optimization_was_completed = False
         self.last_best_design_path = None
         self._optimization_stop_requested = False
+        self._optimization_kill_requested = False
         self._s11_original_pixmap = QPixmap()
         self._radiation_original_pixmap = QPixmap()
         self._postprocess_process = QProcess(self)
@@ -279,6 +283,9 @@ class MainWindow(QMainWindow):
         self.stop_optimization_button = QPushButton("Stop")
         self.stop_optimization_button.setEnabled(False)
         self.stop_optimization_button.clicked.connect(self.stop_optimization)
+        self.kill_optimization_button = QPushButton("Kill")
+        self.kill_optimization_button.setEnabled(False)
+        self.kill_optimization_button.clicked.connect(self.kill_optimization)
         self.load_best_design_button = QPushButton("Load best design into YAML editor")
         self.load_best_design_button.setEnabled(False)
         self.load_best_design_button.clicked.connect(self.load_best_design)
@@ -287,6 +294,7 @@ class MainWindow(QMainWindow):
         controls.addWidget(self.pause_optimization_button)
         controls.addWidget(self.resume_optimization_button)
         controls.addWidget(self.stop_optimization_button)
+        controls.addWidget(self.kill_optimization_button)
         controls.addWidget(self.load_best_design_button)
         self.optimization_status = QLabel("No optimization has been run yet.")
         self._set_optimization_status("No optimization has been run yet.", "neutral")
@@ -652,6 +660,7 @@ class MainWindow(QMainWindow):
         self._optimization_pause_file = run_dir / "PAUSE_REQUESTED"
         self._optimization_stop_file.unlink(missing_ok=True)
         self._optimization_pause_file.unlink(missing_ok=True)
+        self._optimization_kill_requested = False
         self.last_best_design_path = None
         self._optimization_stop_requested = False
         self._optimization_pause_requested = False
@@ -695,30 +704,36 @@ class MainWindow(QMainWindow):
         self.pause_optimization_button.setEnabled(True)
         self.resume_optimization_button.setEnabled(False)
         self.stop_optimization_button.setEnabled(True)
+        self.kill_optimization_button.setEnabled(True)
         self._set_optimization_status("OPTIMIZATION RUNNING", "running")
         self.optimization_log.appendPlainText("Launching / resuming ETROYL discrete optimizer…")
         self.statusBar().showMessage("Optimization running…")
         self._optimization_process.setWorkingDirectory(str(Path(__file__).resolve().parents[1]))
-        self._optimization_process.start(
-            sys.executable,
-            [
-                "-m", "gui.optimization_runner",
-                "--config", str(self._optimization_config_path),
-                "--run-dir", str(self._optimization_run_dir),
-                "--budget", str(metadata["budget"]),
-                "--initial-samples", str(metadata["initial_samples"]),
-                "--pool-size", str(metadata["pool_size"]),
-                "--seed", str(metadata["seed"]),
-                "--objective", str(metadata["objective"]),
-                "--weight-s11", str(metadata["weight_s11"]),
-                "--weight-smoothness", str(metadata["weight_smoothness"]),
-                "--resource-mode", str(metadata.get("resource_mode", "default")),
-                "--workers", str(metadata.get("workers", 4)),
-                "--threads-per-worker", str(metadata.get("threads_per_worker", 2)),
-                "--stop-file", str(self._optimization_stop_file),
-                "--pause-file", str(self._optimization_pause_file),
-            ],
-        )
+        # Run in a dedicated session so spawned FDTD workers share a killable process group.
+        setsid = shutil.which("setsid")
+        program = setsid or sys.executable
+        arguments = [
+            sys.executable, "-m", "gui.optimization_runner",
+            "--config", str(self._optimization_config_path),
+            "--run-dir", str(self._optimization_run_dir),
+            "--budget", str(metadata["budget"]),
+            "--initial-samples", str(metadata["initial_samples"]),
+            "--pool-size", str(metadata["pool_size"]),
+            "--seed", str(metadata["seed"]),
+            "--objective", str(metadata["objective"]),
+            "--weight-s11", str(metadata["weight_s11"]),
+            "--weight-smoothness", str(metadata["weight_smoothness"]),
+            "--resource-mode", str(metadata.get("resource_mode", "default")),
+            "--workers", str(metadata.get("workers", 4)),
+            "--threads-per-worker", str(metadata.get("threads_per_worker", 2)),
+            "--stop-file", str(self._optimization_stop_file),
+            "--pause-file", str(self._optimization_pause_file),
+        ]
+        if setsid:
+            self._optimization_process.start(program, arguments)
+        else:
+            self.optimization_log.appendPlainText("Warning: setsid unavailable; Kill may not terminate spawned workers on this platform.")
+            self._optimization_process.start(program, arguments[1:])
 
     def pause_optimization(self) -> None:
         if self._optimization_process.state() == QProcess.ProcessState.NotRunning:
@@ -768,8 +783,18 @@ class MainWindow(QMainWindow):
             if completed <= 0:
                 raise ValueError("This run has no stored evaluations. Start a new optimization instead.")
             target_budget = completed + additional_budget
+            resource_mode = str(self.optimization_resource_mode.currentData())
+            if resource_mode == "default":
+                workers, threads_per_worker = 4, 2
+            else:
+                workers = int(self.optimization_workers.value())
+                threads_per_worker = int(self.optimization_threads.value())
+            validate_allocation(workers, threads_per_worker)
             metadata["budget"] = target_budget
             metadata["last_additional_budget"] = additional_budget
+            metadata["resource_mode"] = resource_mode
+            metadata["workers"] = workers
+            metadata["threads_per_worker"] = threads_per_worker
             self._optimization_metadata_path.write_text(
                 json.dumps(metadata, indent=2), encoding="utf-8"
             )
@@ -831,6 +856,40 @@ class MainWindow(QMainWindow):
             "Stop requested. The current FDTD evaluation will finish; this run will not be resumable from this GUI session."
         )
 
+    def kill_optimization(self) -> None:
+        """Immediately terminate the runner and spawned FDTD workers."""
+        if self._optimization_process.state() == QProcess.ProcessState.NotRunning:
+            return
+        answer = QMessageBox.question(
+            self, "Kill optimization",
+            "Terminate the optimization immediately, including all active FDTD workers? "
+            "The current evaluations may be lost; completed SQLite history will be retained.",
+            QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
+            QMessageBox.StandardButton.No,
+        )
+        if answer != QMessageBox.StandardButton.Yes:
+            return
+        pid = int(self._optimization_process.processId())
+        if pid <= 0:
+            return
+        self._optimization_kill_requested = True
+        self._optimization_pause_requested = False
+        self._optimization_stop_requested = False
+        self.pause_optimization_button.setEnabled(False)
+        self.stop_optimization_button.setEnabled(False)
+        self.kill_optimization_button.setEnabled(False)
+        self._set_optimization_status("KILL REQUESTED — TERMINATING RUNNER AND FDTD WORKERS", "failure")
+        self.optimization_log.appendPlainText("Immediate termination requested. Active evaluations may be interrupted; stored SQLite results are preserved.")
+        try:
+            if shutil.which("setsid"):
+                os.killpg(pid, signal.SIGKILL)
+            else:
+                self._optimization_process.kill()
+        except ProcessLookupError:
+            pass
+        except OSError as exc:
+            self.optimization_log.appendPlainText("Process-group termination failed: " + str(exc))
+            self._optimization_process.kill()
     def load_best_design(self) -> None:
         if not self.last_best_design_path or not self.last_best_design_path.is_file():
             QMessageBox.warning(self, "Best design", "The saved best-design YAML could not be found.")
@@ -930,9 +989,17 @@ class MainWindow(QMainWindow):
         self.continue_optimization_button.setEnabled(False)
         self.pause_optimization_button.setEnabled(False)
         self.stop_optimization_button.setEnabled(False)
+        self.kill_optimization_button.setEnabled(False)
         if self.last_best_design_path and self.last_best_design_path.is_file():
             self.load_best_design_button.setEnabled(True)
-        if self._optimization_pause_requested:
+        if self._optimization_kill_requested:
+            self.resume_optimization_button.setEnabled(False)
+            self.continue_optimization_button.setEnabled(self._has_stored_optimization_history())
+            self.start_optimization_button.setEnabled(True)
+            self._set_optimization_status("OPTIMIZATION KILLED — STORED HISTORY PRESERVED", "failure")
+            self.statusBar().showMessage("Optimization killed; completed evaluations remain available")
+            self.optimization_log.appendPlainText("Optimization process group terminated.")
+        elif self._optimization_pause_requested:
             self.start_optimization_button.setEnabled(False)
             self.resume_optimization_button.setEnabled(True)
             self._set_optimization_status("OPTIMIZATION PAUSED — READY TO RESUME", "running")
@@ -960,6 +1027,7 @@ class MainWindow(QMainWindow):
         self.pause_optimization_button.setEnabled(False)
         self.resume_optimization_button.setEnabled(False)
         self.stop_optimization_button.setEnabled(False)
+        self.kill_optimization_button.setEnabled(False)
         self._set_optimization_status("OPTIMIZATION FAILED TO START", "failure")
         self.optimization_log.appendPlainText(
             "Could not start the optimizer. Check the Python environment and repository dependencies."
