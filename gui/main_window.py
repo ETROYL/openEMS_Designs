@@ -28,6 +28,8 @@ class MainWindow(QMainWindow):
         self.last_simulation_dir: Path | None = None
         self.last_simulation_config: Path | None = None
         self._simulation_stdout_buffer = ""
+        self._s11_original_pixmap = QPixmap()
+        self._radiation_original_pixmap = QPixmap()
         self._postprocess_process = QProcess(self)
         self._postprocess_process.readyReadStandardOutput.connect(self._postprocess_stdout)
         self._postprocess_process.readyReadStandardError.connect(self._postprocess_stderr)
@@ -126,6 +128,8 @@ class MainWindow(QMainWindow):
         self.stop_simulation_button = QPushButton("Stop simulation")
         self.stop_simulation_button.setEnabled(False)
         self.stop_simulation_button.clicked.connect(self.stop_simulation)
+        self.simulation_status = QLabel("No simulation has been run yet.")
+        self._set_simulation_status("No simulation has been run yet.", "neutral")
         self.simulation_log = QPlainTextEdit()
         self.simulation_log.setReadOnly(True)
         self.simulation_log.setPlaceholderText("FDTD execution output will appear here…")
@@ -134,6 +138,7 @@ class MainWindow(QMainWindow):
         layout.addWidget(self.simulation_settings_label)
         layout.addWidget(self.run_simulation_button)
         layout.addWidget(self.stop_simulation_button)
+        layout.addWidget(self.simulation_status)
         layout.addWidget(self.simulation_log, 1)
         return page
 
@@ -160,17 +165,19 @@ class MainWindow(QMainWindow):
 
         self.s11_plot_label = QLabel("S-parameter / impedance plot will appear here.")
         self.s11_plot_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        self.s11_plot_label.setMinimumHeight(420)
-        self.s11_plot_label.setStyleSheet("background: palette(alternate-base);")
+        self.s11_plot_label.setMinimumWidth(400)
+        self.s11_plot_label.setStyleSheet("background: palette(alternate-base); border-radius: 6px;")
         self.radiation_plot_label = QLabel("Radiation / far-field plot will appear here.")
         self.radiation_plot_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        self.radiation_plot_label.setMinimumHeight(480)
-        self.radiation_plot_label.setStyleSheet("background: palette(alternate-base);")
+        self.radiation_plot_label.setMinimumWidth(400)
+        self.radiation_plot_label.setStyleSheet("background: palette(alternate-base); border-radius: 6px;")
 
         plots_widget = QWidget()
-        plots_layout = QVBoxLayout(plots_widget)
-        plots_layout.addWidget(self.s11_plot_label)
-        plots_layout.addWidget(self.radiation_plot_label)
+        plots_layout = QHBoxLayout(plots_widget)
+        plots_layout.setContentsMargins(18, 18, 18, 18)
+        plots_layout.setSpacing(22)
+        plots_layout.addWidget(self.s11_plot_label, 1)
+        plots_layout.addWidget(self.radiation_plot_label, 1)
         scroll = QScrollArea()
         scroll.setWidgetResizable(True)
         scroll.setWidget(plots_widget)
@@ -348,6 +355,7 @@ class MainWindow(QMainWindow):
         self.radiation_plot_label.setPixmap(QPixmap())
         self.simulation_log.clear()
         self.simulation_log.appendPlainText("Launching standalone FDTD simulation…")
+        self._set_simulation_status("SIMULATION RUNNING", "running")
         self.run_simulation_button.setEnabled(False)
         self.stop_simulation_button.setEnabled(True)
         self.statusBar().showMessage("FDTD simulation running…")
@@ -427,10 +435,14 @@ class MainWindow(QMainWindow):
             if self.last_simulation_dir and self.last_simulation_config and self.last_simulation_dir.is_dir() and self.last_simulation_config.is_file():
                 self.run_postprocess_button.setEnabled(True)
                 self.results_status.setText(f"Ready to post-process: {self.last_simulation_dir}")
+                self._set_simulation_status("SIMULATION COMPLETED SUCCESSFULLY", "success")
+                self.statusBar().showMessage("FDTD simulation completed")
             else:
                 self.results_status.setText("Simulation completed, but its output snapshot could not be located.")
-            self.statusBar().showMessage("FDTD simulation completed")
+                self._set_simulation_status("SIMULATION FINISHED, BUT OUTPUT SNAPSHOT IS MISSING", "failure")
+                self.statusBar().showMessage("FDTD simulation output could not be located")
         else:
+            self._set_simulation_status(f"SIMULATION FAILED — PROCESS EXIT CODE {exit_code}", "failure")
             self.statusBar().showMessage(f"FDTD simulation exited with code {exit_code}")
             self.simulation_log.appendPlainText(f"Simulation process exited with code {exit_code}.")
 
@@ -485,19 +497,52 @@ class MainWindow(QMainWindow):
             self.results_log.appendPlainText(f"Post-processing process exited with code {exit_code}.")
             self.statusBar().showMessage("Post-processing failed")
 
-    @staticmethod
-    def _load_result_plot(label: QLabel, image_path: Path) -> None:
+    def _load_result_plot(self, label: QLabel, image_path: Path) -> None:
         pixmap = QPixmap(str(image_path))
         if pixmap.isNull():
             label.setPixmap(QPixmap())
             label.setText(f"Could not load plot: {image_path}")
             return
+        if label is self.s11_plot_label:
+            self._s11_original_pixmap = pixmap
+        else:
+            self._radiation_original_pixmap = pixmap
         label.setText("")
-        label.setPixmap(pixmap.scaled(
-            max(1, label.width() - 20), 600,
-            Qt.AspectRatioMode.KeepAspectRatio,
-            Qt.TransformationMode.SmoothTransformation,
-        ))
+        self._refresh_result_plots()
+
+    def _refresh_result_plots(self) -> None:
+        for label, original in (
+            (self.s11_plot_label, self._s11_original_pixmap),
+            (self.radiation_plot_label, self._radiation_original_pixmap),
+        ):
+            if original.isNull():
+                continue
+            available_width = max(1, label.width() - 24)
+            available_height = max(1, self.height() - 260)
+            label.setPixmap(original.scaled(
+                available_width, available_height,
+                Qt.AspectRatioMode.KeepAspectRatio,
+                Qt.TransformationMode.SmoothTransformation,
+            ))
+
+    def resizeEvent(self, event) -> None:
+        super().resizeEvent(event)
+        self._refresh_result_plots()
+
+    @staticmethod
+    def _set_simulation_status(self, message: str, state: str) -> None:
+        styles = {
+            "neutral": "background:#e8edf2; color:#344054;",
+            "running": "background:#fff4d6; color:#805b00;",
+            "success": "background:#d9f7e5; color:#146c36;",
+            "failure": "background:#fde2e2; color:#a61b1b;",
+        }
+        self.simulation_status.setText(message)
+        self.simulation_status.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        self.simulation_status.setStyleSheet(
+            f"QLabel {{ {styles.get(state, styles['neutral'])} "
+            "font-weight: 700; padding: 10px; border-radius: 6px; }}"
+        )
 
     def _postprocess_error(self, _error) -> None:
         self.run_simulation_button.setEnabled(True)
@@ -513,6 +558,7 @@ class MainWindow(QMainWindow):
     def _simulation_error(self, _error) -> None:
         self.run_simulation_button.setEnabled(True)
         self.stop_simulation_button.setEnabled(False)
+        self._set_simulation_status("SIMULATION FAILED TO START", "failure")
         self.simulation_log.appendPlainText(
             "Could not start the simulation process. Check the Python environment and openEMS imports."
         )
