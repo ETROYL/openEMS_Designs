@@ -46,7 +46,7 @@ class ParallelOptimizerSchedulingTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as temp:
             config = os.path.join(temp, "design.yaml")
             with open(config, "w", encoding="utf-8") as stream:
-                stream.write("variables: {x: {start: 0, stop: 20, step: 1}}\\n")
+                stream.write("variables: {x: {start: 0, stop: 20, step: 1}}\n")
             space = DiscreteParameterSpace({"x": {"start": 0, "stop": 20, "step": 1}})
             evaluator = CandidateEvaluator(
                 config, os.path.join(temp, "runs"), space,
@@ -74,8 +74,10 @@ class ParallelOptimizerSchedulingTests(unittest.TestCase):
                     )
 
                 _InlineProcessPool.instances.clear()
-                with patch("optimizer.engine.ProcessPoolExecutor", _InlineProcessPool), \\
-                     patch("optimizer.engine.evaluate_fdtd_candidate", fake_worker):
+                with (
+                    patch("optimizer.engine.ProcessPoolExecutor", _InlineProcessPool),
+                    patch("optimizer.engine.evaluate_fdtd_candidate", fake_worker),
+                ):
                     summary = optimizer.run_parallel(
                         4, workers=4, threads_per_worker=2,
                         objective_name="minimize_s11_in_band",
