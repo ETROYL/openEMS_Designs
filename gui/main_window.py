@@ -9,6 +9,8 @@ from datetime import datetime
 from pathlib import Path
 
 import yaml
+
+from gui.cpu_resources import detect_cpu_resources, validate_allocation
 from matplotlib.backends.backend_qtagg import FigureCanvasQTAgg as FigureCanvas
 from matplotlib.figure import Figure
 from PySide6.QtCore import Qt, QProcess
@@ -209,6 +211,30 @@ class MainWindow(QMainWindow):
         settings.addRow("Initial Sobol samples", self.optimization_initial_samples)
         settings.addRow("Candidate pool size", self.optimization_pool_size)
         settings.addRow("Random seed (-1 = random)", self.optimization_seed)
+        self.cpu_resources = detect_cpu_resources()
+        self.optimization_resource_mode = QComboBox()
+        self.optimization_resource_mode.addItem("Default (4 workers × 2 threads)", "default")
+        self.optimization_resource_mode.addItem("Manual", "manual")
+        self.optimization_resource_mode.currentIndexChanged.connect(self._optimization_resource_mode_changed)
+        self.optimization_workers = QSpinBox()
+        self.optimization_workers.setRange(1, int(self.cpu_resources["physical_cores"]))
+        self.optimization_workers.setValue(min(4, int(self.cpu_resources["physical_cores"])))
+        self.optimization_threads = QSpinBox()
+        self.optimization_threads.setRange(1, int(self.cpu_resources["logical_threads"]))
+        self.optimization_threads.setValue(min(2, int(self.cpu_resources["logical_threads"])))
+        self.optimization_workers.valueChanged.connect(self._optimization_resource_mode_changed)
+        self.optimization_threads.valueChanged.connect(self._optimization_resource_mode_changed)
+        self.optimization_cpu_capacity = QLabel(
+            f"Available to this process: {self.cpu_resources['physical_cores']} physical cores / "
+            f"{self.cpu_resources['logical_threads']} logical CPUs"
+        )
+        self.optimization_allocation_status = QLabel("Default allocation: 4 workers × 2 threads per worker")
+        settings.addRow("Hardware allocation", self.optimization_resource_mode)
+        settings.addRow("Workers", self.optimization_workers)
+        settings.addRow("Threads per worker", self.optimization_threads)
+        settings.addRow("Detected CPU capacity", self.optimization_cpu_capacity)
+        settings.addRow("Allocation validation", self.optimization_allocation_status)
+        self._optimization_resource_mode_changed()
         controls = QHBoxLayout()
         self.start_optimization_button = QPushButton("Start optimization")
         self.start_optimization_button.clicked.connect(self.start_optimization)
@@ -471,6 +497,26 @@ class MainWindow(QMainWindow):
                 "neutral",
             )
 
+    def _optimization_resource_mode_changed(self, _index: int = 0) -> None:
+        manual = self.optimization_resource_mode.currentData() == "manual"
+        self.optimization_workers.setEnabled(manual)
+        self.optimization_threads.setEnabled(manual)
+        if not manual:
+            self.optimization_allocation_status.setText("Default allocation: 4 workers × 2 threads per worker")
+            self.optimization_allocation_status.setStyleSheet("color: palette(text);")
+            return
+        try:
+            validate_allocation(self.optimization_workers.value(), self.optimization_threads.value())
+            total = self.optimization_workers.value() * self.optimization_threads.value()
+            self.optimization_allocation_status.setText(
+                f"Valid: {self.optimization_workers.value()} × {self.optimization_threads.value()} = "
+                f"{total} logical CPUs"
+            )
+            self.optimization_allocation_status.setStyleSheet("color: #16803c;")
+        except ValueError as exc:
+            self.optimization_allocation_status.setText(str(exc))
+            self.optimization_allocation_status.setStyleSheet("color: #b42318;")
+
     def _optimization_objective_changed(self, _index: int) -> None:
         combined = self.optimization_objective.currentData() == "multi_objective_combined"
         self.optimization_weight_s11.setEnabled(combined)
@@ -506,6 +552,14 @@ class MainWindow(QMainWindow):
                 raise ValueError("No active discrete optimization variables were found in the YAML.")
             if self.optimization_initial_samples.value() > self.optimization_budget.value():
                 raise ValueError("Initial Sobol samples cannot exceed the evaluation budget.")
+            resource_mode = str(self.optimization_resource_mode.currentData())
+            if resource_mode == "default":
+                workers, threads_per_worker = 4, 2
+                validate_allocation(workers, threads_per_worker)
+            else:
+                workers = self.optimization_workers.value()
+                threads_per_worker = self.optimization_threads.value()
+                validate_allocation(workers, threads_per_worker)
             objective_name = str(self.optimization_objective.currentData())
             weight_s11 = self.optimization_weight_s11.value()
             weight_smoothness = self.optimization_weight_smoothness.value()
@@ -535,6 +589,9 @@ class MainWindow(QMainWindow):
                 "objective": objective_name,
                 "weight_s11": weight_s11,
                 "weight_smoothness": weight_smoothness,
+                "resource_mode": resource_mode,
+                "workers": workers,
+                "threads_per_worker": threads_per_worker,
             }
             metadata_path.write_text(json.dumps(metadata, indent=2), encoding="utf-8")
         except OSError as exc:
@@ -563,6 +620,12 @@ class MainWindow(QMainWindow):
         self.load_best_design_button.setEnabled(False)
         self.resume_optimization_button.setEnabled(False)
         self.optimization_log.appendPlainText("Objective: " + objective_name)
+        self.optimization_log.appendPlainText(
+            f"Requested allocation: {workers} worker(s) × {threads_per_worker} thread(s) per worker"
+        )
+        self.optimization_log.appendPlainText(
+            "Note: allocation is recorded and validated in this milestone; concurrent worker execution is the next integration step."
+        )
         if objective_name == "multi_objective_combined":
             self.optimization_log.appendPlainText(
                 f"Combined weights: S11={weight_s11:g}, impedance smoothness={weight_smoothness:g}"
