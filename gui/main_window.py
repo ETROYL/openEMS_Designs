@@ -399,11 +399,11 @@ class MainWindow(QMainWindow):
         self.optimization_axes.set_xlabel("Optimization evaluation")
         self.optimization_axes.set_ylabel("Objective cost (lower is better)")
         self.optimization_axes.grid(True, alpha=0.25)
-        self.optimization_axes.plot([], [], marker="o", markersize=4, linewidth=1.1,
-                                    label="Objective per evaluation")
-        self.optimization_axes.plot([], [], marker=".", linewidth=2.0,
-                                    label="Best so far")
-        self.optimization_axes.legend(loc="best", fontsize=8)
+        self.optimization_axes.text(
+            0.5, 0.5, "Waiting for the first completed evaluation",
+            transform=self.optimization_axes.transAxes,
+            ha="center", va="center", color="gray",
+        )
         self.optimization_canvas.draw_idle()
 
     def _set_optimization_history(self, history: list[dict]) -> None:
@@ -450,7 +450,14 @@ class MainWindow(QMainWindow):
                 self._optimization_best_steps, self._optimization_best_values,
                 marker=".", linewidth=2.0, label="Best so far",
             )
-        self.optimization_axes.legend(loc="best", fontsize=8)
+        if self._optimization_steps or self._optimization_best_steps:
+            self.optimization_axes.legend(loc="best", fontsize=8)
+        else:
+            self.optimization_axes.text(
+                0.5, 0.5, "Waiting for the first completed evaluation",
+                transform=self.optimization_axes.transAxes,
+                ha="center", va="center", color="gray",
+            )
         self.optimization_canvas.draw_idle()
 
     def _optimization_strategy_changed(self, index: int) -> None:
