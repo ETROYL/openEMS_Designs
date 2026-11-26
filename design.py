@@ -40,6 +40,15 @@ def get_simulation_settings(cfg, profile="simulation"):
         if not isinstance(evaluation, dict):
             raise ValueError("'optimization.evaluation' must be a mapping")
         settings.update(evaluation)
+
+    # The YAML-facing dB value is an energy ratio. openEMS expects the
+    # corresponding linear energy-decay threshold as EndCriteria.
+    if "end_criteria_db" in settings:
+        decay_db = float(settings["end_criteria_db"])
+        if not math.isfinite(decay_db) or decay_db >= 0:
+            raise ValueError("end_criteria_db must be a finite negative dB value")
+        settings["end_criteria"] = 10.0 ** (decay_db / 10.0)
+
     return settings
 
 
