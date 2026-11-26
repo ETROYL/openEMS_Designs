@@ -39,7 +39,9 @@ def run_simulation(config_path: Path, output_parent: Path, design_name: str) -> 
     print(f"SIMULATION_OUTPUT_DIR={output_dir.resolve()}", flush=True)
     print(f"SIMULATION_CONFIG={snapshot_path.resolve()}", flush=True)
     print(f"Frequency range: {fstart / 1e9:g}–{fstop / 1e9:g} GHz", flush=True)
-    print(f"End criteria: {end_criteria:g}", flush=True)
+    if "end_criteria_db" in simulation:
+        print(f"Energy-decay target: {float(simulation['end_criteria_db']):g} dB", flush=True)
+    print(f"openEMS EndCriteria (linear energy ratio): {end_criteria:g}", flush=True)
     print(f"Maximum timesteps: {max_timesteps}", flush=True)
     print(f"OpenMP threads: {NUM_THREADS}", flush=True)
     print("Building CSXCAD model and mesh…", flush=True)
