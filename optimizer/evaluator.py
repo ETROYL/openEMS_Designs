@@ -120,6 +120,7 @@ class CandidateEvaluator:
         failed_penalty: float = 1e6,
         objective_name: str = "multi_objective_combined",
         objective_weights: Mapping[str, float] | None = None,
+        evaluation_settings: Mapping[str, Any] | None = None,
     ) -> "CandidateEvaluator":
         """Bind to the current simulation pipeline and a selectable objective.
 
@@ -159,7 +160,9 @@ class CandidateEvaluator:
             config_file=config_file,
             output_dir=output_dir,
             parameter_space=parameter_space,
-            simulation_runner=run_simulation_instance,
+            simulation_runner=lambda config, params, directory: run_simulation_instance(
+                config, params, directory, evaluation_settings=dict(evaluation_settings or {})
+            ),
             objective_function=objective_function,
             failed_penalty=failed_penalty,
         )
