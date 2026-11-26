@@ -1,6 +1,7 @@
 """PySide6 application shell with YAML editing, CAD preview and FDTD execution."""
 from __future__ import annotations
 
+import json
 import sys
 import tempfile
 from datetime import datetime
@@ -10,8 +11,9 @@ import yaml
 from PySide6.QtCore import Qt, QProcess
 from PySide6.QtGui import QPixmap
 from PySide6.QtWidgets import (
-    QFileDialog, QHBoxLayout, QLabel, QMainWindow, QMessageBox, QPlainTextEdit,
-    QPushButton, QScrollArea, QTabWidget, QToolBar, QVBoxLayout, QWidget,
+    QComboBox, QFileDialog, QFormLayout, QHBoxLayout, QLabel, QMainWindow,
+    QMessageBox, QPlainTextEdit, QProgressBar, QPushButton, QScrollArea,
+    QSpinBox, QTabWidget, QToolBar, QVBoxLayout, QWidget,
 )
 
 
@@ -28,6 +30,11 @@ class MainWindow(QMainWindow):
         self.last_simulation_dir: Path | None = None
         self.last_simulation_config: Path | None = None
         self._simulation_stdout_buffer = ""
+        self._optimization_stdout_buffer = ""
+        self._optimization_run_dir = None
+        self._optimization_stop_file = None
+        self.last_best_design_path = None
+        self._optimization_stop_requested = False
         self._s11_original_pixmap = QPixmap()
         self._radiation_original_pixmap = QPixmap()
         self._postprocess_process = QProcess(self)
@@ -47,6 +54,11 @@ class MainWindow(QMainWindow):
         self._simulation_process.readyReadStandardError.connect(self._simulation_stderr)
         self._simulation_process.finished.connect(self._simulation_finished)
         self._simulation_process.errorOccurred.connect(self._simulation_error)
+        self._optimization_process = QProcess(self)
+        self._optimization_process.readyReadStandardOutput.connect(self._optimization_stdout)
+        self._optimization_process.readyReadStandardError.connect(self._optimization_stderr)
+        self._optimization_process.finished.connect(self._optimization_finished)
+        self._optimization_process.errorOccurred.connect(self._optimization_error)
 
         toolbar = QToolBar("Project")
         toolbar.setMovable(False)
@@ -66,10 +78,7 @@ class MainWindow(QMainWindow):
         self.editor.setPlaceholderText("Open a design YAML file or enter a configuration…")
         self.editor.setLineWrapMode(QPlainTextEdit.LineWrapMode.NoWrap)
         self.tabs.addTab(self._editor_page(), "Project & YAML")
-        self.tabs.addTab(self._placeholder_page(
-            "Optimization",
-            "Strategy selection and controls for the ETROYL discrete optimizer, Optuna and SciPy will be integrated next."
-        ), "Optimization")
+        self.tabs.addTab(self._optimization_page(), "Optimization")
         self.tabs.addTab(self._cad_page(), "CAD Preview")
         self.tabs.addTab(self._simulation_page(), "Simulation")
         self.tabs.addTab(self._results_page(), "Results")
@@ -82,6 +91,78 @@ class MainWindow(QMainWindow):
         self.path_label.setTextInteractionFlags(Qt.TextInteractionFlag.TextSelectableByMouse)
         layout.addWidget(self.path_label)
         layout.addWidget(self.editor)
+        return page
+
+    def _optimization_page(self) -> QWidget:
+        page = QWidget()
+        layout = QVBoxLayout(page)
+        heading = QLabel("Design optimization")
+        heading.setStyleSheet("font-size: 20px; font-weight: 600;")
+        description = QLabel(
+            "Optimize the current YAML without modifying the source file. Each launch "
+            "creates a timestamped run inside <design>_opt. ETROYL Discrete is available now; "
+            "Optuna and SciPy will be connected next."
+        )
+        description.setWordWrap(True)
+        settings = QFormLayout()
+        self.optimization_strategy = QComboBox()
+        self.optimization_strategy.addItems([
+            "ETROYL Discrete (Sobol + GP + Expected Improvement)",
+            "Optuna (TPE) — coming next",
+            "SciPy (SHGO + Nelder–Mead) — coming next",
+        ])
+        self.optimization_strategy.currentIndexChanged.connect(self._optimization_strategy_changed)
+        self.optimization_budget = QSpinBox()
+        self.optimization_budget.setRange(1, 100000)
+        self.optimization_budget.setValue(30)
+        self.optimization_initial_samples = QSpinBox()
+        self.optimization_initial_samples.setRange(1, 100000)
+        self.optimization_initial_samples.setValue(8)
+        self.optimization_pool_size = QSpinBox()
+        self.optimization_pool_size.setRange(1, 10000000)
+        self.optimization_pool_size.setValue(4096)
+        self.optimization_seed = QSpinBox()
+        self.optimization_seed.setRange(-1, 2147483647)
+        self.optimization_seed.setValue(42)
+        settings.addRow("Strategy", self.optimization_strategy)
+        settings.addRow("New FDTD evaluation budget", self.optimization_budget)
+        settings.addRow("Initial Sobol samples", self.optimization_initial_samples)
+        settings.addRow("Candidate pool size", self.optimization_pool_size)
+        settings.addRow("Random seed (-1 = random)", self.optimization_seed)
+        controls = QHBoxLayout()
+        self.start_optimization_button = QPushButton("Start optimization")
+        self.start_optimization_button.clicked.connect(self.start_optimization)
+        self.stop_optimization_button = QPushButton("Request stop")
+        self.stop_optimization_button.setEnabled(False)
+        self.stop_optimization_button.clicked.connect(self.stop_optimization)
+        self.load_best_design_button = QPushButton("Load best design into YAML editor")
+        self.load_best_design_button.setEnabled(False)
+        self.load_best_design_button.clicked.connect(self.load_best_design)
+        controls.addWidget(self.start_optimization_button)
+        controls.addWidget(self.stop_optimization_button)
+        controls.addWidget(self.load_best_design_button)
+        self.optimization_status = QLabel("No optimization has been run yet.")
+        self._set_optimization_status("No optimization has been run yet.", "neutral")
+        self.optimization_progress = QProgressBar()
+        self.optimization_progress.setRange(0, 100)
+        self.optimization_progress.setValue(0)
+        self.optimization_progress_label = QLabel("Evaluations: 0 / 0")
+        self.optimization_best_label = QLabel("Best objective: —")
+        self.optimization_output_label = QLabel("Output: <design>_opt/run_<timestamp>")
+        self.optimization_output_label.setWordWrap(True)
+        self.optimization_log = QPlainTextEdit()
+        self.optimization_log.setReadOnly(True)
+        self.optimization_log.setPlaceholderText("Optimization progress and evaluation output will appear here…")
+        layout.addWidget(heading)
+        layout.addWidget(description)
+        layout.addLayout(settings)
+        layout.addLayout(controls)
+        layout.addWidget(self.optimization_status)
+        layout.addWidget(self.optimization_progress)
+        layout.addWidget(self.optimization_progress_label)
+        layout.addWidget(self.optimization_best_label)
+        layout.addWidget(self.optimization_output_label)
+        layout.addWidget(self.optimization_log, 1)
         return page
 
     def _cad_page(self) -> QWidget:
