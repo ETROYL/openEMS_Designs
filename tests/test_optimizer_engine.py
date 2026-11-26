@@ -63,6 +63,16 @@ class DiscreteSurrogateOptimizerTests(unittest.TestCase):
         self.assertEqual(len(self.calls), 5)
         self.assertEqual(len(set(self.calls)), 5)
 
+    def test_history_is_restored_in_database_insertion_order(self):
+        first = self.evaluator.evaluate((7,), evaluation_id="first")
+        second = self.evaluator.evaluate((1,), evaluation_id="second")
+        self.store.save_result(first)
+        self.store.save_result(second)
+
+        restored = self.store.list_results()
+
+        self.assertEqual([item.indices for item in restored], [(7,), (1,)])
+
     def test_existing_fingerprint_is_skipped_before_simulation(self):
         point = (2,)
         result = self.evaluator.evaluate(point, evaluation_id="preexisting")
