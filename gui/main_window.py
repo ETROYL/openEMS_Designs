@@ -806,6 +806,7 @@ class MainWindow(QMainWindow):
         self._optimization_pause_file.unlink(missing_ok=True)
         self._optimization_stop_requested = False
         self._optimization_pause_requested = False
+        self._optimization_kill_requested = False
         self._optimization_was_completed = False
         self.continue_optimization_button.setEnabled(False)
         self.start_optimization_button.setEnabled(False)
