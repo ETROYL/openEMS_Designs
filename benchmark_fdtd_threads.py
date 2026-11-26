@@ -18,7 +18,7 @@ import time
 
 RESULT_PREFIX = "__THREAD_BENCHMARK_RESULT__="
 MAX_TIMESTEP_WARNING = re.compile(
-    r"Max\\.?\\s+number\\s+of\\s+timesteps\\s+was\\s+reached",
+    r"Max\.?\s+number\s+of\s+timesteps\s+was\s+reached",
     re.IGNORECASE,
 )
 PARAMETERS = {
