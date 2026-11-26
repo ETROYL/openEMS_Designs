@@ -760,7 +760,7 @@ class MainWindow(QMainWindow):
             database = self._optimization_run_dir / "evaluations.sqlite"
             if not database.is_file():
                 raise FileNotFoundError("The run's evaluations.sqlite database is missing.")
-            with sqlite3.connect(f"file:{database}?mode=ro", uri=True) as connection:
+            with sqlite3.connect(str(database)) as connection:
                 completed = int(connection.execute("SELECT COUNT(*) FROM evaluations").fetchone()[0])
             additional_budget = int(self.optimization_budget.value())
             if additional_budget <= 0:
@@ -791,7 +791,7 @@ class MainWindow(QMainWindow):
             f"Evaluations: {completed} / {target_budget}"
         )
         self.optimization_log.appendPlainText(
-            f"\\nContinuing existing run: {completed} stored evaluations + "
+            f"\nContinuing existing run: {completed} stored evaluations + "
             f"{additional_budget} additional evaluations (target {target_budget})."
         )
         self._launch_optimization_process()
