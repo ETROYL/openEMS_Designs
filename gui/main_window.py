@@ -285,6 +285,220 @@ class MainWindow(QMainWindow):
         layout.addStretch(1)
         return page
 
+    def _optimization_strategy_changed(self, index: int) -> None:
+        enabled = index == 0
+        self.start_optimization_button.setEnabled(
+            enabled and self._optimization_process.state() == QProcess.ProcessState.NotRunning
+        )
+        if not enabled:
+            self._set_optimization_status(
+                "This strategy is not connected yet. ETROYL Discrete is currently available.",
+                "neutral",
+            )
+
+    def start_optimization(self) -> None:
+        if self._optimization_process.state() != QProcess.ProcessState.NotRunning:
+            QMessageBox.information(self, "Optimization", "An optimization is already running.")
+            return
+        if self.optimization_strategy.currentIndex() != 0:
+            QMessageBox.information(self, "Strategy not available", "ETROYL Discrete is the first integrated strategy.")
+            return
+        if self.current_config is None:
+            QMessageBox.warning(
+                self, "Design file required",
+                "Open a YAML design file first. The optimization folder is created beside that file.",
+            )
+            return
+        if not self._current_config_is_valid():
+            return
+        if self._simulation_process.state() != QProcess.ProcessState.NotRunning:
+            QMessageBox.information(self, "Optimization", "Stop the standalone FDTD simulation first.")
+            return
+        if self._postprocess_process.state() != QProcess.ProcessState.NotRunning:
+            QMessageBox.information(self, "Optimization", "Wait for post-processing to finish first.")
+            return
+
+        try:
+            from optimizer import DiscreteParameterSpace
+            config = yaml.safe_load(self.editor.toPlainText()) or {}
+            space = DiscreteParameterSpace.from_config(config)
+            if space.dimension == 0:
+                raise ValueError("No active discrete optimization variables were found in the YAML.")
+            if self.optimization_initial_samples.value() > self.optimization_budget.value():
+                raise ValueError("Initial Sobol samples cannot exceed the evaluation budget.")
+        except Exception as exc:
+            QMessageBox.warning(self, "Optimization configuration", str(exc))
+            return
+
+        root_dir = self.current_config.parent / (self.current_config.stem + "_opt")
+        timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+        run_dir = root_dir / ("run_" + timestamp)
+        suffix = 1
+        while run_dir.exists():
+            run_dir = root_dir / ("run_" + timestamp + "_" + str(suffix).zfill(2))
+            suffix += 1
+        try:
+            run_dir.mkdir(parents=True, exist_ok=False)
+            snapshot = run_dir / "config.yaml"
+            snapshot.write_text(self.editor.toPlainText(), encoding="utf-8")
+            stop_file = run_dir / "STOP_REQUESTED"
+        except OSError as exc:
+            QMessageBox.critical(self, "Optimization output", str(exc))
+            return
+
+        self._optimization_run_dir = run_dir
+        self._optimization_stop_file = stop_file
+        self.last_best_design_path = None
+        self._optimization_stop_requested = False
+        self._optimization_stdout_buffer = ""
+        self.optimization_log.clear()
+        self.optimization_progress.setRange(0, self.optimization_budget.value())
+        self.optimization_progress.setValue(0)
+        self.optimization_progress_label.setText("Evaluations: 0 / " + str(self.optimization_budget.value()))
+        self.optimization_best_label.setText("Best objective: —")
+        self.optimization_output_label.setText("Output: " + str(run_dir))
+        self.load_best_design_button.setEnabled(False)
+        self.start_optimization_button.setEnabled(False)
+        self.stop_optimization_button.setEnabled(True)
+        self._set_optimization_status("OPTIMIZATION RUNNING", "running")
+        self.optimization_log.appendPlainText("Launching ETROYL discrete optimizer…")
+        self.statusBar().showMessage("Optimization running…")
+
+        self._optimization_process.setWorkingDirectory(str(Path(__file__).resolve().parents[1]))
+        self._optimization_process.start(
+            sys.executable,
+            [
+                "-m", "gui.optimization_runner",
+                "--config", str(snapshot),
+                "--run-dir", str(run_dir),
+                "--budget", str(self.optimization_budget.value()),
+                "--initial-samples", str(self.optimization_initial_samples.value()),
+                "--pool-size", str(self.optimization_pool_size.value()),
+                "--seed", str(self.optimization_seed.value()),
+                "--stop-file", str(stop_file),
+            ],
+        )
+
+    def stop_optimization(self) -> None:
+        if self._optimization_process.state() == QProcess.ProcessState.NotRunning:
+            return
+        if self._optimization_stop_file:
+            try:
+                self._optimization_stop_file.write_text("stop requested by GUI", encoding="utf-8")
+            except OSError as exc:
+                self.optimization_log.appendPlainText("Could not write stop request: " + str(exc))
+                return
+        self._optimization_stop_requested = True
+        self.stop_optimization_button.setEnabled(False)
+        self._set_optimization_status(
+            "STOP REQUESTED — waiting for the current FDTD evaluation to finish",
+            "running",
+        )
+        self.optimization_log.appendPlainText(
+            "Stop requested. The current FDTD evaluation will finish before another candidate is launched."
+        )
+
+    def load_best_design(self) -> None:
+        if not self.last_best_design_path or not self.last_best_design_path.is_file():
+            QMessageBox.warning(self, "Best design", "The saved best-design YAML could not be found.")
+            return
+        try:
+            content = self.last_best_design_path.read_text(encoding="utf-8")
+        except OSError as exc:
+            QMessageBox.critical(self, "Best design", str(exc))
+            return
+        self.editor.setPlainText(content)
+        self.path_label.setText(
+            "Best design loaded (source file preserved): " + str(self.last_best_design_path)
+        )
+        self._update_simulation_settings()
+        self.tabs.setCurrentIndex(0)
+        self.statusBar().showMessage("Best optimized design loaded into the YAML editor")
+
+    def _optimization_stdout(self) -> None:
+        data = bytes(self._optimization_process.readAllStandardOutput()).decode(errors="replace")
+        self._consume_optimization_output(data)
+
+    def _consume_optimization_output(self, data: str, flush: bool = False) -> None:
+        self._optimization_stdout_buffer += data
+        lines = self._optimization_stdout_buffer.split("\n")
+        self._optimization_stdout_buffer = "" if flush else lines.pop()
+        if flush and lines and lines[-1] == "":
+            lines.pop()
+        for raw_line in lines:
+            line = raw_line.rstrip("\r")
+            if not line:
+                continue
+            if line.startswith("__OPTIMIZATION_PROGRESS__="):
+                try:
+                    payload = json.loads(line.split("=", 1)[1])
+                    completed = int(payload["completed"])
+                    budget = int(payload["budget"])
+                    self.optimization_progress.setRange(0, max(1, budget))
+                    self.optimization_progress.setValue(min(completed, budget))
+                    self.optimization_progress_label.setText(
+                        "Evaluations: " + str(completed) + " / " + str(budget)
+                    )
+                    best = payload.get("best_objective")
+                    if best is not None:
+                        self.optimization_best_label.setText(
+                            "Best objective: " + format(float(best), ".10g")
+                            + "    |    Successful: " + str(payload.get("successful", 0))
+                            + "    Failed: " + str(payload.get("failed", 0))
+                        )
+                except (ValueError, KeyError, TypeError, json.JSONDecodeError) as exc:
+                    self.optimization_log.appendPlainText("Could not parse progress update: " + str(exc))
+                continue
+            self.optimization_log.appendPlainText(line)
+            if line.startswith("BEST_DESIGN_PATH="):
+                self.last_best_design_path = Path(line.split("=", 1)[1].strip())
+
+    def _optimization_stderr(self) -> None:
+        data = bytes(self._optimization_process.readAllStandardError()).decode(errors="replace")
+        if data:
+            self.optimization_log.appendPlainText(data.rstrip())
+
+    def _optimization_finished(self, exit_code: int, _exit_status) -> None:
+        remaining = bytes(self._optimization_process.readAllStandardOutput()).decode(errors="replace")
+        self._consume_optimization_output(remaining, flush=True)
+        self.start_optimization_button.setEnabled(self.optimization_strategy.currentIndex() == 0)
+        self.stop_optimization_button.setEnabled(False)
+        if self.last_best_design_path and self.last_best_design_path.is_file():
+            self.load_best_design_button.setEnabled(True)
+        if self._optimization_stop_requested:
+            self._set_optimization_status("OPTIMIZATION STOPPED BY USER", "neutral")
+            self.statusBar().showMessage("Optimization stopped")
+        elif exit_code == 0 and self.last_best_design_path and self.last_best_design_path.is_file():
+            self._set_optimization_status("OPTIMIZATION COMPLETED SUCCESSFULLY", "success")
+            self.statusBar().showMessage("Optimization completed")
+        else:
+            self._set_optimization_status("OPTIMIZATION FAILED — PROCESS EXIT CODE " + str(exit_code), "failure")
+            self.statusBar().showMessage("Optimization failed")
+            self.optimization_log.appendPlainText("Optimization process exited with code " + str(exit_code) + ".")
+
+    def _optimization_error(self, _error) -> None:
+        self.start_optimization_button.setEnabled(self.optimization_strategy.currentIndex() == 0)
+        self.stop_optimization_button.setEnabled(False)
+        self._set_optimization_status("OPTIMIZATION FAILED TO START", "failure")
+        self.optimization_log.appendPlainText(
+            "Could not start the optimizer. Check the Python environment and repository dependencies."
+        )
+        self.statusBar().showMessage("Optimization failed to start")
+
+    def _set_optimization_status(self, message: str, state: str) -> None:
+        styles = {
+            "neutral": "background:#e8edf2; color:#344054;",
+            "running": "background:#fff4d6; color:#805b00;",
+            "success": "background:#d9f7e5; color:#146c36;",
+            "failure": "background:#fde2e2; color:#a61b1b;",
+        }
+        self.optimization_status.setText(message)
+        self.optimization_status.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        self.optimization_status.setStyleSheet(
+            "QLabel { " + styles.get(state, styles["neutral"])
+            + " font-weight: 700; padding: 10px; border-radius: 6px; }"
+        )
+
     def open_config(self) -> None:
         filename, _ = QFileDialog.getOpenFileName(
             self, "Open electromagnetic design",
