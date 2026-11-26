@@ -157,6 +157,8 @@ class MainWindow(QMainWindow):
     def _optimization_page(self) -> QWidget:
         page = QWidget()
         layout = QVBoxLayout(page)
+        layout.setContentsMargins(8, 8, 8, 8)
+        layout.setSpacing(5)
         heading = QLabel("Design optimization")
         heading.setStyleSheet("font-size: 20px; font-weight: 600;")
         description = QLabel(
@@ -165,14 +167,18 @@ class MainWindow(QMainWindow):
             "Optuna and SciPy will be connected next."
         )
         description.setWordWrap(True)
-        settings_box = QGroupBox("Design Optimization")
+        # The page heading already names this section; omit a second group-box title.
+        settings_box = QGroupBox()
         settings_layout = QHBoxLayout(settings_box)
-        settings_layout.setContentsMargins(12, 12, 12, 12)
-        settings_layout.setSpacing(24)
+        settings_layout.setContentsMargins(8, 6, 8, 6)
+        settings_layout.setSpacing(18)
         left_settings = QFormLayout()
         right_settings = QFormLayout()
-        left_settings.setFieldGrowthPolicy(QFormLayout.FieldGrowthPolicy.ExpandingFieldsGrow)
-        right_settings.setFieldGrowthPolicy(QFormLayout.FieldGrowthPolicy.ExpandingFieldsGrow)
+        for form in (left_settings, right_settings):
+            form.setFieldGrowthPolicy(QFormLayout.FieldGrowthPolicy.ExpandingFieldsGrow)
+            form.setHorizontalSpacing(10)
+            form.setVerticalSpacing(4)
+            form.setContentsMargins(0, 0, 0, 0)
 
         self.optimization_strategy = QComboBox()
         self.optimization_strategy.addItems([
@@ -238,8 +244,12 @@ class MainWindow(QMainWindow):
             f"{self.cpu_resources['logical_threads']} logical CPUs"
         )
         self.optimization_allocation_status = QLabel("Default allocation: 4 workers × 2 threads per worker")
-        self.optimization_cpu_capacity.setWordWrap(True)
-        self.optimization_allocation_status.setWordWrap(True)
+        # Keep these read-only diagnostics on compact single lines; wrapping
+        # made their text clip vertically and unnecessarily increased the panel.
+        self.optimization_cpu_capacity.setWordWrap(False)
+        self.optimization_allocation_status.setWordWrap(False)
+        self.optimization_cpu_capacity.setMinimumHeight(22)
+        self.optimization_allocation_status.setMinimumHeight(22)
 
         # Five editable controls on the right, followed by read-only validation details.
         right_settings.addRow("Candidate pool size", self.optimization_pool_size)
@@ -285,21 +295,36 @@ class MainWindow(QMainWindow):
         self.optimization_log = QPlainTextEdit()
         self.optimization_log.setReadOnly(True)
         self.optimization_log.setPlaceholderText("Optimization progress and evaluation output will appear here…")
-        self.optimization_log.setMinimumWidth(420)
+        self.optimization_log.setMinimumWidth(360)
+        self.optimization_log.setMinimumHeight(260)
 
         # Embedded live convergence chart, displayed beside the textual console.
-        self.optimization_figure = Figure(figsize=(5.0, 3.8), tight_layout=True)
+        self.optimization_figure = Figure(figsize=(5.0, 3.0), tight_layout=True)
         self.optimization_canvas = FigureCanvas(self.optimization_figure)
         self.optimization_canvas.setMinimumWidth(340)
+        self.optimization_canvas.setMinimumHeight(260)
         self.optimization_axes = self.optimization_figure.add_subplot(111)
         self._reset_optimization_plot()
 
         output_panel = QWidget()
         output_layout = QHBoxLayout(output_panel)
         output_layout.setContentsMargins(0, 0, 0, 0)
-        output_layout.setSpacing(12)
+        output_layout.setSpacing(8)
         output_layout.addWidget(self.optimization_log, 3)
         output_layout.addWidget(self.optimization_canvas, 2)
+
+        # Put run metadata on one line rather than spending three rows on it.
+        run_info = QHBoxLayout()
+        run_info.setSpacing(18)
+        self.optimization_progress_label.setMinimumWidth(125)
+        self.optimization_best_label.setMinimumWidth(170)
+        self.optimization_output_label.setMinimumWidth(240)
+        self.optimization_output_label.setTextInteractionFlags(
+            Qt.TextInteractionFlag.TextSelectableByMouse
+        )
+        run_info.addWidget(self.optimization_progress_label)
+        run_info.addWidget(self.optimization_best_label)
+        run_info.addWidget(self.optimization_output_label, 1)
 
         layout.addWidget(heading)
         layout.addWidget(description)
@@ -307,9 +332,7 @@ class MainWindow(QMainWindow):
         layout.addLayout(controls)
         layout.addWidget(self.optimization_status)
         layout.addWidget(self.optimization_progress)
-        layout.addWidget(self.optimization_progress_label)
-        layout.addWidget(self.optimization_best_label)
-        layout.addWidget(self.optimization_output_label)
+        layout.addLayout(run_info)
         layout.addWidget(output_panel, 1)
         return page
 
