@@ -4,8 +4,8 @@ from __future__ import annotations
 import argparse
 from pathlib import Path
 
-import matplotlib
 import matplotlib.pyplot as plt
+import numpy as np
 
 from .engine import run_multiband
 
@@ -37,7 +37,8 @@ def main() -> int:
     )
     parser.add_argument("--profile", choices=("optimization", "accurate"),
                         default="accurate")
-    parser.add_argument("--frequency-range", nargs=2, type=float, metavar=("FMIN_GHZ", "FMAX_GHZ"))
+    parser.add_argument("--frequency-range", nargs=2, type=float,
+                        metavar=("FMIN_GHZ", "FMAX_GHZ"))
     parser.add_argument("--points", type=int)
     parser.add_argument("--threads", type=int, default=1)
     parser.add_argument("--end-criteria-db", type=float)
@@ -58,10 +59,9 @@ def main() -> int:
     )
 
     frequency = result["frequency_ghz"]
-    s11_db = result["s11_db"]
-    phase = __import__("numpy").rad2deg(__import__("numpy").angle(result["s11"]))
+    phase = np.rad2deg(np.angle(result["s11"]))
     fig, (ax_mag, ax_phase) = plt.subplots(2, 1, figsize=(11, 7), sharex=True)
-    ax_mag.plot(frequency, s11_db, linewidth=1.7)
+    ax_mag.plot(frequency, result["s11_db"], linewidth=1.7)
     ax_mag.set_ylabel("|S11| (dB)")
     ax_mag.grid(True, alpha=0.3)
     ax_mag.set_title("Reconstructed multi-band FDTD response")
