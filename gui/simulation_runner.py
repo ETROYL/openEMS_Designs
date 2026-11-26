@@ -30,10 +30,14 @@ def run_simulation(config_path: Path, output_parent: Path, design_name: str) -> 
         output_dir = output_parent / f"{safe_name}_fdtd_{suffix:02d}"
         suffix += 1
     output_dir.mkdir()
+    snapshot_path = output_dir / "design.yaml"
+    snapshot_path.write_text(config_path.read_text(encoding="utf-8"), encoding="utf-8")
 
     f0, fc = (fstart + fstop) / 2.0, fstop - fstart
     print(f"Design: {design_name}", flush=True)
     print(f"Output directory: {output_dir}", flush=True)
+    print(f"SIMULATION_OUTPUT_DIR={output_dir.resolve()}", flush=True)
+    print(f"SIMULATION_CONFIG={snapshot_path.resolve()}", flush=True)
     print(f"Frequency range: {fstart / 1e9:g}–{fstop / 1e9:g} GHz", flush=True)
     print(f"End criteria: {end_criteria:g}", flush=True)
     print(f"Maximum timesteps: {max_timesteps}", flush=True)
