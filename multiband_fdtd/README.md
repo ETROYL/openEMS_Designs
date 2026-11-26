@@ -45,3 +45,20 @@ dictionary provides objective-compatible keys: freq, s11, s11_db and z_in.
 Optional Gaussian low-pass smoothing operates on real and imaginary response
 components. It is disabled by default and should be chosen conservatively to
 avoid suppressing genuine narrow resonances.
+
+
+## Interval preparation
+
+A bounded set of candidate intervals can be generated before measurement:
+
+    from multiband_fdtd import generate_candidate_bands
+
+    candidates = generate_candidate_bands(
+        frequency_range_ghz=(0.1, 3.0),
+        interval_widths_ghz=(0.5, 1.0, 1.5),
+        boundary_step_ghz=0.25,
+        n_pts=41,
+        max_candidates=80,
+    )
+
+The complete requested range is always retained as a fallback candidate.
