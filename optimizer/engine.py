@@ -29,9 +29,9 @@ class OptimizationSummary:
 class DiscreteSurrogateOptimizer:
     """Sobol + GP/EI search that resumes from SQLite history.
 
-    The budget counts new FDTD attempts in this invocation. Candidate
-    fingerprints are checked before the evaluator is called. Failed attempts
-    remain excluded from selection but never train the GP.
+    ``run`` provides sequential evaluation; ``run_parallel`` dispatches
+    batches to spawned FDTD worker processes. Both reuse SQLite history.
+    Failed attempts remain excluded from selection but never train the GP.
     """
 
     def __init__(
