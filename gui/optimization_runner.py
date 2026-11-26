@@ -65,6 +65,16 @@ def main() -> int:
 
     with config_path.open("r", encoding="utf-8") as stream:
         config = yaml.safe_load(stream) or {}
+    metadata_path = run_dir / "run_settings.json"
+    if not metadata_path.is_file():
+        raise FileNotFoundError(f"Optimization run settings not found: {metadata_path}")
+    with metadata_path.open("r", encoding="utf-8") as stream:
+        run_settings = json.load(stream)
+    evaluation_settings = run_settings.get("evaluation_settings")
+    if run_settings.get("use_simulation_parameters", True):
+        evaluation_settings = None
+    elif not isinstance(evaluation_settings, dict):
+        raise ValueError("Optimization-only mode requires saved evaluation settings.")
     space = DiscreteParameterSpace.from_config(config)
     if space.dimension == 0:
         raise ValueError("The YAML contains no active discrete optimization variables.")
@@ -85,6 +95,13 @@ def main() -> int:
             flush=True,
         )
     print(f"Evaluation budget: {args.budget}", flush=True)
+    print(
+        "Evaluation profile: " + (
+            "YAML simulation settings" if evaluation_settings is None
+            else json.dumps(evaluation_settings, sort_keys=True)
+        ),
+        flush=True,
+    )
     print(
         f"CPU capacity: {resources['physical_cores']} physical cores / "
         f"{resources['logical_threads']} logical CPUs",
@@ -198,6 +215,7 @@ def main() -> int:
             objective_weights=objective_weights,
             progress_callback=report,
             stop_requested=lambda: stop_file.exists() or pause_file.exists(),
+            evaluation_settings=evaluation_settings,
         )
 
         print(f"\n========== {strategy_label.upper()} OPTIMIZATION SUMMARY ==========", flush=True)
