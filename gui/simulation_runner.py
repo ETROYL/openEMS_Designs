@@ -4,13 +4,13 @@ import argparse
 from pathlib import Path
 from CSXCAD import ContinuousStructure
 from openEMS import openEMS
-from design import build_design, load_config
+from design import build_design, get_simulation_settings, load_config
 from parallel import NUM_THREADS
 
 
 def run_simulation(config_path: Path, output_parent: Path, design_name: str) -> Path:
     cfg = load_config(str(config_path))
-    simulation = cfg.get("simulation", {})
+    simulation = get_simulation_settings(cfg, "simulation")
     fstart = float(simulation["fstart"]) * 1e9
     fstop = float(simulation["fstop"]) * 1e9
     if fstart <= 0 or fstop <= fstart:
