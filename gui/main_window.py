@@ -529,7 +529,8 @@ class MainWindow(QMainWindow):
 
     def resizeEvent(self, event) -> None:
         super().resizeEvent(event)
-        self._refresh_result_plots()
+        if hasattr(self, "s11_plot_label"):
+            self._refresh_result_plots()
 
     def _set_simulation_status(self, message: str, state: str) -> None:
         styles = {
