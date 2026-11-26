@@ -31,8 +31,9 @@ PARAMETERS = {
 
 def run_worker(args: argparse.Namespace) -> int:
     # This must happen before importing optimization/parallel.
-    os.environ["EM_THREADS"] = str(args.threads)
-    os.environ["OMP_NUM_THREADS"] = str(args.threads)
+    thread_count = args.threads[0]
+    os.environ["EM_THREADS"] = str(thread_count)
+    os.environ["OMP_NUM_THREADS"] = str(thread_count)
 
     started = time.perf_counter()
     payload: dict[str, object]
@@ -51,7 +52,7 @@ def run_worker(args: argparse.Namespace) -> int:
             "objective": objective,
             "fdtd_seconds": time.perf_counter() - started,
             "parameters": PARAMETERS,
-            "threads": args.threads,
+            "threads": thread_count,
         }
     except Exception as exc:
         payload = {
