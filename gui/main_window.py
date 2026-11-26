@@ -396,12 +396,12 @@ class MainWindow(QMainWindow):
 
     def _consume_simulation_stdout(self, data: str, flush: bool = False) -> None:
         self._simulation_stdout_buffer += data
-        lines = self._simulation_stdout_buffer.split("\\n")
+        lines = self._simulation_stdout_buffer.split("\n")
         self._simulation_stdout_buffer = "" if flush else lines.pop()
         if flush and lines and lines[-1] == "":
             lines.pop()
         for line in lines:
-            line = line.rstrip("\\r")
+            line = line.rstrip("\r")
             if not line:
                 continue
             self.simulation_log.appendPlainText(line)
