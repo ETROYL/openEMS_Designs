@@ -4,6 +4,7 @@ from __future__ import annotations
 from concurrent.futures import ProcessPoolExecutor, as_completed
 from dataclasses import dataclass
 import multiprocessing
+import os
 from typing import Callable
 from .candidate_selection import discrete_candidate_pool, select_next_candidates
 from .evaluator import CandidateEvaluator, EvaluationResult
@@ -211,6 +212,16 @@ class DiscreteSurrogateOptimizer:
                 if progress_callback is not None:
                     progress_callback(result, len(new_results), budget)
             return not cancelled()
+
+        # Spawned children inherit these settings before importing NumPy or
+        # the native openEMS bindings. The worker initializer also applies
+        # EM_THREADS explicitly before importing optimization.py.
+        os.environ["EM_THREADS"] = str(int(threads_per_worker))
+        os.environ["OMP_NUM_THREADS"] = str(int(threads_per_worker))
+        os.environ["OPENBLAS_NUM_THREADS"] = "1"
+        os.environ["MKL_NUM_THREADS"] = "1"
+        os.environ["NUMEXPR_NUM_THREADS"] = "1"
+        os.environ["VECLIB_MAXIMUM_THREADS"] = "1"
 
         stop_reason = "evaluation budget reached"
         context = multiprocessing.get_context("spawn")
