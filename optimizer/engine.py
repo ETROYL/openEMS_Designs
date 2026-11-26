@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
+from typing import Callable
 from .candidate_selection import discrete_candidate_pool, select_next_candidates
 from .evaluator import CandidateEvaluator, EvaluationResult
 from .evaluation_store import EvaluationStore
@@ -66,11 +67,31 @@ class DiscreteSurrogateOptimizer:
         self.store.save_result(result)
         return result
 
-    def run(self, budget: int) -> OptimizationSummary:
-        """Perform at most budget new evaluations and return the updated best."""
+    def run(
+        self,
+        budget: int,
+        *,
+        progress_callback: Callable[[EvaluationResult, int, int], None] | None = None,
+        stop_requested: Callable[[], bool] | None = None,
+    ) -> OptimizationSummary:
+        """Perform at most budget new evaluations, reporting each completed attempt.
+
+        Cancellation is cooperative: an in-progress FDTD evaluation is allowed to
+        finish, then no further candidate is launched.
+        """
         if isinstance(budget, bool) or not isinstance(budget, int) or budget < 0:
             raise ParameterSpaceError("budget must be a non-negative integer")
         new_results: list[EvaluationResult] = []
+
+        def cancelled() -> bool:
+            return bool(stop_requested and stop_requested())
+
+        def record(result: EvaluationResult | None) -> None:
+            if result is not None:
+                new_results.append(result)
+                if progress_callback is not None:
+                    progress_callback(result, len(new_results), budget)
+
         if budget == 0:
             return self._summary(new_results, "zero budget")
 
@@ -80,14 +101,18 @@ class DiscreteSurrogateOptimizer:
             n_initial = min(self.initial_samples, budget, self.space.cardinality)
             initial = sobol_initial_design(self.space, n_initial, seed=self.seed)
             for point in initial:
+                if cancelled():
+                    return self._summary(new_results, "stop requested")
                 result = self._evaluate_if_new(point, len(new_results) + 1)
-                if result is not None:
-                    new_results.append(result)
+                record(result)
             if len(new_results) >= budget:
                 return self._summary(new_results, "evaluation budget reached")
 
         stop_reason = "evaluation budget reached"
         while len(new_results) < budget:
+            if cancelled():
+                stop_reason = "stop requested"
+                break
             all_results = self.store.list_results()
             observed = {result.indices for result in all_results}
             available = self.space.cardinality - len(observed)
@@ -129,9 +154,11 @@ class DiscreteSurrogateOptimizer:
                 stop_reason = "no unexplored candidates available"
                 break
             for point in candidates:
+                if cancelled():
+                    stop_reason = "stop requested"
+                    break
                 result = self._evaluate_if_new(point, len(new_results) + 1)
-                if result is not None:
-                    new_results.append(result)
+                record(result)
                 if len(new_results) >= budget:
                     break
 
