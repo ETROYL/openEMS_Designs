@@ -82,6 +82,78 @@ def generate_candidate_bands(
     return candidates
 
 
+def characterize_and_select_intervals(
+    config_path: str | Path,
+    output_dir: str | Path,
+    frequency_range_ghz: tuple[float, float],
+    *,
+    interval_widths_ghz: Iterable[float] = (0.5, 1.0, 1.5),
+    boundary_step_ghz: float = 0.25,
+    n_pts: int = 41,
+    max_candidates: int = 80,
+    minimum_overlap_ghz: float = 0.1,
+    end_criteria_db: float = -10.0,
+    max_timesteps: int = 50000,
+    threads: int = 1,
+) -> dict[str, Any]:
+    """Measure generated intervals and return a reusable complete interval plan.
+
+    The generated candidate set is bounded by max_candidates. The selected
+    sequence and its settings are saved alongside the measurement manifest.
+    """
+    candidates = generate_candidate_bands(
+        frequency_range_ghz,
+        interval_widths_ghz=interval_widths_ghz,
+        boundary_step_ghz=boundary_step_ghz,
+        n_pts=n_pts,
+        max_candidates=max_candidates,
+    )
+    result = characterize_frequency_intervals(
+        config_path,
+        output_dir,
+        candidates,
+        end_criteria_db=end_criteria_db,
+        max_timesteps=max_timesteps,
+        threads=threads,
+    )
+    selected = select_fastest_band_sequence(
+        result["records"],
+        frequency_range_ghz,
+        minimum_overlap_ghz=minimum_overlap_ghz,
+    )
+    selection = {
+        "frequency_range_ghz": list(map(float, frequency_range_ghz)),
+        "minimum_overlap_ghz": float(minimum_overlap_ghz),
+        "candidate_count": len(candidates),
+        "selected_intervals": [
+            {
+                "fstart_ghz": item.fstart_ghz,
+                "fstop_ghz": item.fstop_ghz,
+                "runtime_seconds": item.runtime_seconds,
+                "mesh_cells": item.mesh_cells,
+            }
+            for item in selected
+        ],
+        "total_measured_runtime_seconds": sum(
+            item.runtime_seconds for item in selected
+        ),
+    }
+    result["manifest"]["candidate_generation"] = {
+        "interval_widths_ghz": sorted({float(x) for x in interval_widths_ghz}),
+        "boundary_step_ghz": float(boundary_step_ghz),
+        "n_pts": int(n_pts),
+        "max_candidates": int(max_candidates),
+    }
+    result["manifest"]["selection"] = selection
+    Path(result["manifest_path"]).write_text(
+        json.dumps(result["manifest"], indent=2), encoding="utf-8"
+    )
+    result["candidates"] = candidates
+    result["selected"] = selected
+    result["selection"] = selection
+    return result
+
+
 def characterize_frequency_intervals(
     config_path: str | Path,
     output_dir: str | Path,
