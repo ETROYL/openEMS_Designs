@@ -12,6 +12,7 @@ import copy
 import csv
 import json
 import os
+import sys
 import time
 from datetime import datetime
 from pathlib import Path
@@ -19,6 +20,10 @@ from pathlib import Path
 import matplotlib.pyplot as plt
 import numpy as np
 import yaml
+
+REPO_ROOT = Path(__file__).resolve().parents[2]
+if str(REPO_ROOT) not in sys.path:
+    sys.path.insert(0, str(REPO_ROOT))
 
 # Deliberately overlapping windows: the overlap is used to compare complex S11.
 DEFAULT_WINDOWS_GHZ = (
@@ -29,14 +34,13 @@ DEFAULT_WINDOWS_GHZ = (
 
 
 def parse_args() -> argparse.Namespace:
-    repo_root = Path(__file__).resolve().parents[2]
     parser = argparse.ArgumentParser(
         description="Benchmark overlapping openEMS frequency windows."
     )
     parser.add_argument(
         "--config",
         type=Path,
-        default=repo_root / "studies/multiband/dipole_multiband.yaml",
+        default=REPO_ROOT / "studies/multiband/dipole_multiband.yaml",
         help="Parametric YAML design (geometry and defaults).",
     )
     parser.add_argument("--threads", type=int, default=4)
@@ -76,7 +80,7 @@ def run_window(index: int, fstart: float, fstop: float, args: argparse.Namespace
 
     from CSXCAD import ContinuousStructure
     from openEMS import openEMS
-    from design import build_design, load_config
+    from design import build_design
 
     tag = f"window_{index:02d}_{fstart:.2f}_{fstop:.2f}GHz"
     sim_dir = run_root / tag
@@ -128,7 +132,7 @@ def run_window(index: int, fstart: float, fstop: float, args: argparse.Namespace
 
     freq_ghz = frequencies_hz / 1e9
     s11_db = 20.0 * np.log10(np.maximum(np.abs(s11), 1e-15))
-    phase_deg = np.rad2deg(np.unwrap(np.angle(s11)))
+    phase_deg = np.rad2deg(np.angle(s11))
 
     csv_path = sim_dir / "s11_complex.csv"
     with csv_path.open("w", newline="", encoding="utf-8") as stream:
@@ -199,7 +203,7 @@ def make_comparison_plot(results: list[dict], output_path: Path) -> None:
     ax_mag.grid(True, alpha=0.3)
     ax_mag.legend()
     ax_phase.set_xlabel("Frequency (GHz)")
-    ax_phase.set_ylabel("Unwrapped phase (degrees)")
+    ax_phase.set_ylabel("Wrapped phase (degrees)")
     ax_phase.grid(True, alpha=0.3)
     ax_phase.legend()
     fig.tight_layout()
