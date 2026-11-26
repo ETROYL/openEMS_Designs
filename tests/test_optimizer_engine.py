@@ -77,6 +77,29 @@ class DiscreteSurrogateOptimizerTests(unittest.TestCase):
         self.assertEqual(len(self.calls) - before, 2)
         self.assertTrue(self.store.contains(self.evaluator.fingerprint(point)))
 
+    def test_progress_callback_and_cooperative_stop(self):
+        optimizer = DiscreteSurrogateOptimizer(
+            self.space, self.evaluator, self.store,
+            initial_samples=4, pool_size=8, seed=13,
+        )
+        events = []
+        stop = {"requested": False}
+
+        def report(result, completed, budget):
+            events.append((result.status, completed, budget))
+            stop["requested"] = True
+
+        summary = optimizer.run(
+            budget=6,
+            progress_callback=report,
+            stop_requested=lambda: stop["requested"],
+        )
+        self.assertEqual(len(summary.evaluations), 1)
+        self.assertEqual(len(events), 1)
+        self.assertEqual(events[0][1:], (1, 6))
+        self.assertEqual(summary.stop_reason, "stop requested")
+        self.assertEqual(self.store.count(), 1)
+
     def test_zero_budget_does_not_evaluate(self):
         optimizer = DiscreteSurrogateOptimizer(self.space, self.evaluator, self.store)
         summary = optimizer.run(budget=0)
