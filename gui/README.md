@@ -26,41 +26,21 @@ existing YAML-driven openEMS design and optimization code.
 
 The Optimization tab integrates two selectable strategies: ETROYL Discrete (Sobol + Gaussian process + expected improvement) and Optuna TPE. Both use the same exact discrete YAML parameter grid, shared FDTD worker/evaluation pipeline, selectable objective functions, SQLite evaluation history and pause/resume/stop/continue workflow. The former standalone SciPy SHGO + Nelder–Mead script has been removed from this branch and is not a GUI strategy. Its controls include the new-evaluation budget, initial Sobol sample count, candidate-pool size, random seed and objective function. Available objectives are matched-bandwidth cost, worst-case S11, S11 magnitude, impedance smoothness and the combined S11 + impedance-smoothness objective. The combined objective exposes independent weights; defaults (1.0 and 0.0053) preserve the original formula. Hardware allocation can be set to Default (4 workers × 2 threads) or Manual; the GUI and runner validate worker count against available physical cores, per-worker threads against logical CPUs, and total threads against the logical CPU capacity. The worker allocation is applied to actual execution: each worker is a separate spawned process, and its openEMS FDTD solver receives the configured thread count. Candidate evaluations are dispatched in batches up to the worker count; the surrogate is updated after each batch, and completed results are persisted by the parent process. The live plot and progress count update as individual worker results finish. Native BLAS thread pools are limited to one thread per worker to avoid nested oversubscription. Pause and Stop requests are cooperative: an in-progress FDTD evaluation completes before another candidate is launched. Kill immediately terminates the runner process group, including spawned FDTD workers on Linux when `setsid` is available; active evaluations may be lost, while completed SQLite history is retained. A paused run can be resumed against its existing SQLite history and remaining budget. A completed or user-stopped run can be continued by entering an additional budget; the GUI adds it to the number of evaluations already stored, preserves the original YAML/objective/weights/search settings while allowing a new worker/thread allocation for the continuation, rebuilds the convergence plot from the database, and then appends new evaluations. The SQLite database is the source of truth for evaluation history; previously evaluated parameter combinations are excluded from subsequent candidate selection. The output structure is `<design>_opt/run_<timestamp>/`, containing `config.yaml`, `run_settings.json`, `evaluations.sqlite`, `runs/` and (when at least one evaluation succeeds) `best_design.yaml`.
 
-### Independent simulation and optimization settings
+### Simulation settings and optimization overrides
 
-The YAML `simulation` block defines the standalone/high-fidelity simulation
-configuration. Optimization candidates can override solver and frequency
-settings independently through `optimization.evaluation`:
+The YAML `simulation` block remains the sole source of simulation parameters.
+In the Optimization tab, the default radio option, **Use simulation parameters
+for Optimization**, uses those same settings for every candidate evaluation.
+Selecting **Define optimization-only parameters** enables GUI controls for
+frequency start/stop (GHz), frequency-point count, energy-decay target (dB)
+and maximum timesteps. These overrides are stored in the optimization run's
+`run_settings.json`; they are not written into the source YAML.
 
-```yaml
-simulation:
-  unit: 1.0
-  fstart: 0.1
-  fstop: 1.0
-  n_pts: 301
-  end_criteria_db: -40.0
-  max_timesteps: 500000
-
-optimization:
-  evaluation:
-    fstart: 0.2
-    fstop: 0.8
-    n_pts: 51
-    end_criteria_db: -15.0
-    max_timesteps: 40000
-```
-
-All frequency values remain in GHz, matching the existing design schema.
-Use end_criteria_db for an intuitive energy-decay target in dB; the shared
-configuration resolver converts it to the linear energy ratio expected by
-openEMS. Existing end_criteria values remain supported for older YAML files.
-The evaluation profile inherits any setting omitted from
-`optimization.evaluation` from the base `simulation` block. Geometry,
-materials, ports and the mesh unit remain shared. Standalone simulations and
-post-processing continue to use the base `simulation` settings. Optimization
-workers use the merged evaluation profile for solver convergence, timestep
-limit, frequency sampling and frequency-dependent mesh construction. Both
-profiles are recorded in each optimization run's `run_settings.json`.
+The selected evaluation profile is passed to spawned FDTD workers at runtime.
+The standalone Simulation tab always uses the YAML `simulation` settings.
+Resume and Continue retain the evaluation mode and values saved when the run
+was created. The dB energy-decay value is converted to the linear energy ratio
+expected by openEMS. Existing `end_criteria` YAML values remain supported.
 
 The standalone simulation uses PML_8 boundaries and the thread count from the
 repository's `parallel.py` module.
