@@ -94,16 +94,25 @@ def main() -> int:
         flush=True,
     )
     print(
-        "Allocation is validated and persisted; process-based concurrent evaluation "
-        "will be enabled in the next implementation increment.",
+        f"Active execution: {args.workers} spawned process worker(s), "
+        f"{args.threads_per_worker} FDTD thread(s) per worker; "
+        f"up to {args.workers} candidates evaluated concurrently.",
         flush=True,
     )
     print(f"SQLite history: {database}", flush=True)
 
     objective_weights = {"s11": args.weight_s11, "smoothness": args.weight_smoothness}
-    evaluator = CandidateEvaluator.from_existing_pipeline(
-        str(config_path), str(evaluation_dir), space,
-        objective_name=args.objective, objective_weights=objective_weights,
+    # The parent evaluator is used only for deterministic candidate
+    # fingerprinting. Native openEMS evaluators are constructed inside each
+    # spawned worker after its EM_THREADS setting has been applied.
+    evaluator = CandidateEvaluator(
+        str(config_path),
+        str(evaluation_dir),
+        space,
+        simulation_runner=lambda *_args: (_ for _ in ()).throw(
+            RuntimeError("Simulation must execute in a spawned FDTD worker")
+        ),
+        objective_function=lambda *_args, **_kwargs: float("nan"),
     )
 
     with EvaluationStore(database) as store:
@@ -167,8 +176,12 @@ def main() -> int:
             if result.error:
                 print(f"  evaluation error: {result.error}", flush=True)
 
-        summary = optimizer.run(
+        summary = optimizer.run_parallel(
             remaining_budget,
+            workers=args.workers,
+            threads_per_worker=args.threads_per_worker,
+            objective_name=args.objective,
+            objective_weights=objective_weights,
             progress_callback=report,
             stop_requested=lambda: stop_file.exists() or pause_file.exists(),
         )
