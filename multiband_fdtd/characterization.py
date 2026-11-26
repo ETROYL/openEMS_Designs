@@ -8,7 +8,7 @@ from pathlib import Path
 from typing import Iterable, Any
 
 from .engine import FrequencyBand, _run_band
-from .planner import BandCost
+from .planner import BandCost, select_fastest_band_sequence
 
 
 def generate_candidate_bands(
@@ -101,9 +101,10 @@ def characterize_and_select_intervals(
     The generated candidate set is bounded by max_candidates. The selected
     sequence and its settings are saved alongside the measurement manifest.
     """
+    widths = tuple(float(width) for width in interval_widths_ghz)
     candidates = generate_candidate_bands(
         frequency_range_ghz,
-        interval_widths_ghz=interval_widths_ghz,
+        interval_widths_ghz=widths,
         boundary_step_ghz=boundary_step_ghz,
         n_pts=n_pts,
         max_candidates=max_candidates,
@@ -139,7 +140,7 @@ def characterize_and_select_intervals(
         ),
     }
     result["manifest"]["candidate_generation"] = {
-        "interval_widths_ghz": sorted({float(x) for x in interval_widths_ghz}),
+        "interval_widths_ghz": sorted(set(widths)),
         "boundary_step_ghz": float(boundary_step_ghz),
         "n_pts": int(n_pts),
         "max_candidates": int(max_candidates),
