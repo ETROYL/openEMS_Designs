@@ -1,6 +1,9 @@
-"""PySide6 application shell with YAML editing and CAD preview."""
+"""PySide6 application shell with YAML editing, CAD preview and FDTD execution."""
 from __future__ import annotations
+
+import sys
 import tempfile
+from datetime import datetime
 from pathlib import Path
 
 import yaml
@@ -20,11 +23,19 @@ class MainWindow(QMainWindow):
         self.resize(1180, 780)
         self.current_config: Path | None = None
         self._preview_config_path: Path | None = None
+        self._simulation_config_path: Path | None = None
+
         self._cad_process = QProcess(self)
         self._cad_process.readyReadStandardOutput.connect(self._cad_stdout)
         self._cad_process.readyReadStandardError.connect(self._cad_stderr)
         self._cad_process.finished.connect(self._cad_finished)
         self._cad_process.errorOccurred.connect(self._cad_error)
+
+        self._simulation_process = QProcess(self)
+        self._simulation_process.readyReadStandardOutput.connect(self._simulation_stdout)
+        self._simulation_process.readyReadStandardError.connect(self._simulation_stderr)
+        self._simulation_process.finished.connect(self._simulation_finished)
+        self._simulation_process.errorOccurred.connect(self._simulation_error)
 
         toolbar = QToolBar("Project")
         toolbar.setMovable(False)
@@ -49,10 +60,7 @@ class MainWindow(QMainWindow):
             "Strategy selection and controls for the ETROYL discrete optimizer, Optuna and SciPy will be integrated next."
         ), "Optimization")
         self.tabs.addTab(self._cad_page(), "CAD Preview")
-        self.tabs.addTab(self._placeholder_page(
-            "Simulation",
-            "Standalone openEMS simulation controls, frequency settings, mesh settings and execution resources."
-        ), "Simulation")
+        self.tabs.addTab(self._simulation_page(), "Simulation")
         self.tabs.addTab(self._placeholder_page(
             "Results",
             "S-parameters, impedance, VSWR, far-field and optimization-history visualizations."
@@ -89,6 +97,40 @@ class MainWindow(QMainWindow):
         layout.addWidget(self.preview_log, 1)
         return page
 
+    def _simulation_page(self) -> QWidget:
+        page = QWidget()
+        layout = QVBoxLayout(page)
+        heading = QLabel("Standalone FDTD simulation")
+        heading.setStyleSheet("font-size: 20px; font-weight: 600;")
+        description = QLabel(
+            "Run one openEMS simulation using the current YAML editor contents. "
+            "The run uses the simulation settings in the YAML, PML_8 boundaries and the "
+            "thread count configured by parallel.py. Each run is written to a new output folder."
+        )
+        description.setWordWrap(True)
+        self.simulation_settings_label = QLabel(
+            "Load a design to review its frequency range and solver settings."
+        )
+        self.simulation_settings_label.setWordWrap(True)
+        self.simulation_settings_label.setTextInteractionFlags(
+            Qt.TextInteractionFlag.TextSelectableByMouse
+        )
+        self.run_simulation_button = QPushButton("Run FDTD simulation")
+        self.run_simulation_button.clicked.connect(self.start_simulation)
+        self.stop_simulation_button = QPushButton("Stop simulation")
+        self.stop_simulation_button.setEnabled(False)
+        self.stop_simulation_button.clicked.connect(self.stop_simulation)
+        self.simulation_log = QPlainTextEdit()
+        self.simulation_log.setReadOnly(True)
+        self.simulation_log.setPlaceholderText("FDTD execution output will appear here…")
+        layout.addWidget(heading)
+        layout.addWidget(description)
+        layout.addWidget(self.simulation_settings_label)
+        layout.addWidget(self.run_simulation_button)
+        layout.addWidget(self.stop_simulation_button)
+        layout.addWidget(self.simulation_log, 1)
+        return page
+
     @staticmethod
     def _placeholder_page(title: str, description: str) -> QWidget:
         page = QWidget()
@@ -120,6 +162,7 @@ class MainWindow(QMainWindow):
         self.current_config = path
         self.editor.setPlainText(content)
         self.path_label.setText(str(path))
+        self._update_simulation_settings()
         self.statusBar().showMessage(f"Loaded {path.name}")
 
     def save_config(self) -> None:
@@ -148,6 +191,7 @@ class MainWindow(QMainWindow):
             QMessageBox.warning(self, "Invalid YAML", str(exc))
             self.statusBar().showMessage("YAML validation failed")
             return False
+        self._update_simulation_settings()
         self.statusBar().showMessage("YAML syntax and root structure are valid")
         QMessageBox.information(
             self, "YAML validation",
@@ -156,26 +200,37 @@ class MainWindow(QMainWindow):
         )
         return True
 
-    def preview_cad(self) -> None:
-        if self._cad_process.state() != QProcess.ProcessState.NotRunning:
-            QMessageBox.information(self, "CAD preview", "A CAD preview is already running.")
-            return
-        if not self.validate_config_silently():
-            return
+    def _current_config_is_valid(self) -> bool:
+        try:
+            parsed = yaml.safe_load(self.editor.toPlainText())
+            if not isinstance(parsed, dict):
+                raise ValueError("The YAML root must be a mapping/object.")
+            return True
+        except (yaml.YAMLError, ValueError) as exc:
+            QMessageBox.warning(self, "Invalid YAML", str(exc))
+            return False
 
-        # Use the editor contents, not a possibly stale on-disk YAML file.
+    def _write_temporary_config(self, prefix: str) -> Path:
         handle = tempfile.NamedTemporaryFile(
-            mode="w", suffix=".yaml", prefix="etroyl_gui_preview_",
+            mode="w", suffix=".yaml", prefix=prefix,
             encoding="utf-8", delete=False,
         )
         try:
             handle.write(self.editor.toPlainText())
             handle.close()
-            self._preview_config_path = Path(handle.name)
+            return Path(handle.name)
         except Exception:
             handle.close()
             raise
 
+    def preview_cad(self) -> None:
+        if self._cad_process.state() != QProcess.ProcessState.NotRunning:
+            QMessageBox.information(self, "CAD preview", "A CAD preview is already running.")
+            return
+        if not self._current_config_is_valid():
+            return
+
+        self._preview_config_path = self._write_temporary_config("etroyl_gui_preview_")
         self.preview_log.clear()
         self.preview_log.appendPlainText("Preparing CSXCAD geometry…")
         self.preview_button.setEnabled(False)
@@ -185,15 +240,62 @@ class MainWindow(QMainWindow):
             ["-m", "gui.cad_preview", str(self._preview_config_path)],
         )
 
-    def validate_config_silently(self) -> bool:
+    def _simulation_settings(self) -> str:
+        cfg = yaml.safe_load(self.editor.toPlainText()) or {}
+        sim = cfg.get("simulation", {})
+        return (
+            f"Frequency: {sim.get('fstart', '—')}–{sim.get('fstop', '—')} GHz    |    "
+            f"Frequency points: {sim.get('n_pts', 301)}\n"
+            f"End criteria: {sim.get('end_criteria', 1e-4)}    |    "
+            f"Maximum timesteps: {sim.get('max_timesteps', 500000)}"
+        )
+
+    def _update_simulation_settings(self) -> None:
         try:
-            parsed = yaml.safe_load(self.editor.toPlainText())
-            if not isinstance(parsed, dict):
-                raise ValueError("The YAML root must be a mapping/object.")
-        except (yaml.YAMLError, ValueError) as exc:
-            QMessageBox.warning(self, "Invalid YAML", str(exc))
-            return False
-        return True
+            self.simulation_settings_label.setText(self._simulation_settings())
+        except (yaml.YAMLError, AttributeError, TypeError):
+            self.simulation_settings_label.setText("Simulation settings could not be read from the current YAML.")
+
+    def start_simulation(self) -> None:
+        if self._simulation_process.state() != QProcess.ProcessState.NotRunning:
+            QMessageBox.information(self, "FDTD simulation", "A simulation is already running.")
+            return
+        if not self._current_config_is_valid():
+            return
+        try:
+            cfg = yaml.safe_load(self.editor.toPlainText())
+            sim = cfg.get("simulation", {})
+            fstart, fstop = float(sim["fstart"]), float(sim["fstop"])
+            if fstart <= 0 or fstop <= fstart:
+                raise ValueError("simulation.fstart/fstop must define a positive increasing frequency range")
+            if int(sim.get("max_timesteps", 500000)) <= 0:
+                raise ValueError("simulation.max_timesteps must be positive")
+        except (KeyError, TypeError, ValueError) as exc:
+            QMessageBox.warning(self, "Invalid simulation settings", str(exc))
+            return
+
+        default_parent = self.current_config.parent if self.current_config else Path.cwd()
+        selected_parent = QFileDialog.getExistingDirectory(
+            self, "Choose parent folder for simulation output", str(default_parent)
+        )
+        if not selected_parent:
+            return
+
+        self._simulation_config_path = self._write_temporary_config("etroyl_gui_simulation_")
+        self.simulation_log.clear()
+        self.simulation_log.appendPlainText("Launching standalone FDTD simulation…")
+        self.run_simulation_button.setEnabled(False)
+        self.stop_simulation_button.setEnabled(True)
+        self.statusBar().showMessage("FDTD simulation running…")
+        self._simulation_process.start(
+            sys.executable,
+            ["-m", "gui.simulation_runner", str(self._simulation_config_path), selected_parent],
+        )
+
+    def stop_simulation(self) -> None:
+        if self._simulation_process.state() != QProcess.ProcessState.NotRunning:
+            self.simulation_log.appendPlainText("Stop requested by user.")
+            self._simulation_process.kill()
 
     def _cad_stdout(self) -> None:
         data = bytes(self._cad_process.readAllStandardOutput()).decode(errors="replace")
@@ -223,5 +325,32 @@ class MainWindow(QMainWindow):
         )
         self.statusBar().showMessage("CAD preview failed to start")
 
+    def _simulation_stdout(self) -> None:
+        data = bytes(self._simulation_process.readAllStandardOutput()).decode(errors="replace")
+        if data:
+            self.simulation_log.appendPlainText(data.rstrip())
 
-import sys
+    def _simulation_stderr(self) -> None:
+        data = bytes(self._simulation_process.readAllStandardError()).decode(errors="replace")
+        if data:
+            self.simulation_log.appendPlainText(data.rstrip())
+
+    def _simulation_finished(self, exit_code: int, _exit_status) -> None:
+        self.run_simulation_button.setEnabled(True)
+        self.stop_simulation_button.setEnabled(False)
+        if self._simulation_config_path:
+            self._simulation_config_path.unlink(missing_ok=True)
+            self._simulation_config_path = None
+        if exit_code == 0:
+            self.statusBar().showMessage("FDTD simulation completed")
+        else:
+            self.statusBar().showMessage(f"FDTD simulation exited with code {exit_code}")
+            self.simulation_log.appendPlainText(f"Simulation process exited with code {exit_code}.")
+
+    def _simulation_error(self, _error) -> None:
+        self.run_simulation_button.setEnabled(True)
+        self.stop_simulation_button.setEnabled(False)
+        self.simulation_log.appendPlainText(
+            "Could not start the simulation process. Check the Python environment and openEMS imports."
+        )
+        self.statusBar().showMessage("FDTD simulation failed to start")
