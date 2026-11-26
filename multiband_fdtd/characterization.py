@@ -149,8 +149,17 @@ def characterize_and_select_intervals(
     Path(result["manifest_path"]).write_text(
         json.dumps(result["manifest"], indent=2), encoding="utf-8"
     )
+    candidate_by_pair = {
+        (round(item.fstart_ghz, 12), round(item.fstop_ghz, 12)): item
+        for item in candidates
+    }
+    selected_bands = [
+        candidate_by_pair[(round(item.fstart_ghz, 12), round(item.fstop_ghz, 12))]
+        for item in selected
+    ]
     result["candidates"] = candidates
     result["selected"] = selected
+    result["selected_bands"] = selected_bands
     result["selection"] = selection
     return result
 
