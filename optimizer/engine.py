@@ -77,7 +77,6 @@ class DiscreteSurrogateOptimizer:
         *,
         progress_callback: Callable[[EvaluationResult, int, int], None] | None = None,
         stop_requested: Callable[[], bool] | None = None,
-        evaluation_settings: dict[str, Any] | None = None,
     ) -> OptimizationSummary:
         """Perform at most budget new evaluations, reporting each completed attempt.
 
@@ -179,6 +178,7 @@ class DiscreteSurrogateOptimizer:
         objective_weights: dict[str, float] | None = None,
         progress_callback: Callable[[EvaluationResult, int, int], None] | None = None,
         stop_requested: Callable[[], bool] | None = None,
+        evaluation_settings: dict[str, Any] | None = None,
     ) -> OptimizationSummary:
         """Evaluate candidate batches in spawned worker processes.
 
