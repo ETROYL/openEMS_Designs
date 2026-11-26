@@ -5,6 +5,7 @@ import json
 import math
 import sys
 import tempfile
+import sqlite3
 from datetime import datetime
 from pathlib import Path
 
@@ -223,7 +224,7 @@ class MainWindow(QMainWindow):
         left_settings.addRow("Objective function", self.optimization_objective)
         left_settings.addRow("Combined weight — S11", self.optimization_weight_s11)
         left_settings.addRow("Combined weight — impedance smoothness", self.optimization_weight_smoothness)
-        left_settings.addRow("New FDTD evaluation budget", self.optimization_budget)
+        left_settings.addRow("New / additional FDTD budget", self.optimization_budget)
         left_settings.addRow("Initial Sobol samples", self.optimization_initial_samples)
 
         self.cpu_resources = detect_cpu_resources()
@@ -264,8 +265,11 @@ class MainWindow(QMainWindow):
         settings_layout.addLayout(right_settings, 1)
         self._optimization_resource_mode_changed()
         controls = QHBoxLayout()
-        self.start_optimization_button = QPushButton("Start optimization")
+        self.start_optimization_button = QPushButton("Start new optimization")
         self.start_optimization_button.clicked.connect(self.start_optimization)
+        self.continue_optimization_button = QPushButton("Continue optimization")
+        self.continue_optimization_button.setEnabled(False)
+        self.continue_optimization_button.clicked.connect(self.continue_optimization)
         self.pause_optimization_button = QPushButton("Pause")
         self.pause_optimization_button.setEnabled(False)
         self.pause_optimization_button.clicked.connect(self.pause_optimization)
@@ -279,6 +283,7 @@ class MainWindow(QMainWindow):
         self.load_best_design_button.setEnabled(False)
         self.load_best_design_button.clicked.connect(self.load_best_design)
         controls.addWidget(self.start_optimization_button)
+        controls.addWidget(self.continue_optimization_button)
         controls.addWidget(self.pause_optimization_button)
         controls.addWidget(self.resume_optimization_button)
         controls.addWidget(self.stop_optimization_button)
@@ -652,6 +657,7 @@ class MainWindow(QMainWindow):
         self._optimization_pause_requested = False
         self._optimization_was_completed = False
         self._optimization_stdout_buffer = ""
+        self.continue_optimization_button.setEnabled(False)
         self.optimization_log.clear()
         self._reset_optimization_plot()
         self.optimization_progress.setRange(0, self.optimization_budget.value())
@@ -731,6 +737,64 @@ class MainWindow(QMainWindow):
         self.optimization_log.appendPlainText(
             "Pause requested. The current FDTD evaluation will finish, then the run will be saved for resumption."
         )
+
+    def continue_optimization(self) -> None:
+        """Continue the selected run with an additional evaluation budget."""
+        if self._optimization_process.state() != QProcess.ProcessState.NotRunning:
+            QMessageBox.information(self, "Continue optimization", "An optimization is already running.")
+            return
+        if not self._optimization_run_dir or not self._optimization_metadata_path:
+            QMessageBox.warning(self, "Continue optimization", "There is no existing optimization run to continue.")
+            return
+        if self._optimization_pause_file and self._optimization_pause_file.exists():
+            QMessageBox.information(
+                self, "Continue optimization",
+                "This run is paused. Use Resume to finish its current budget before adding more evaluations.",
+            )
+            return
+        if self._optimization_stop_file and self._optimization_stop_file.exists():
+            # A user-stopped run can still be continued; remove the old stop marker below.
+            pass
+        try:
+            metadata = json.loads(self._optimization_metadata_path.read_text(encoding="utf-8"))
+            database = self._optimization_run_dir / "evaluations.sqlite"
+            if not database.is_file():
+                raise FileNotFoundError("The run's evaluations.sqlite database is missing.")
+            with sqlite3.connect(f"file:{database}?mode=ro", uri=True) as connection:
+                completed = int(connection.execute("SELECT COUNT(*) FROM evaluations").fetchone()[0])
+            additional_budget = int(self.optimization_budget.value())
+            if additional_budget <= 0:
+                raise ValueError("The additional evaluation budget must be greater than zero.")
+            if completed <= 0:
+                raise ValueError("This run has no stored evaluations. Start a new optimization instead.")
+            target_budget = completed + additional_budget
+            metadata["budget"] = target_budget
+            metadata["last_additional_budget"] = additional_budget
+            self._optimization_metadata_path.write_text(
+                json.dumps(metadata, indent=2), encoding="utf-8"
+            )
+        except (OSError, sqlite3.Error, ValueError, TypeError, json.JSONDecodeError) as exc:
+            QMessageBox.warning(self, "Continue optimization", str(exc))
+            return
+
+        self._optimization_stop_file.unlink(missing_ok=True)
+        self._optimization_pause_file.unlink(missing_ok=True)
+        self._optimization_stop_requested = False
+        self._optimization_pause_requested = False
+        self._optimization_was_completed = False
+        self.continue_optimization_button.setEnabled(False)
+        self.start_optimization_button.setEnabled(False)
+        self.resume_optimization_button.setEnabled(False)
+        self.optimization_progress.setRange(0, target_budget)
+        self.optimization_progress.setValue(completed)
+        self.optimization_progress_label.setText(
+            f"Evaluations: {completed} / {target_budget}"
+        )
+        self.optimization_log.appendPlainText(
+            f"\\nContinuing existing run: {completed} stored evaluations + "
+            f"{additional_budget} additional evaluations (target {target_budget})."
+        )
+        self._launch_optimization_process()
 
     def resume_optimization(self) -> None:
         if self._optimization_process.state() != QProcess.ProcessState.NotRunning:
@@ -850,6 +914,7 @@ class MainWindow(QMainWindow):
         remaining = bytes(self._optimization_process.readAllStandardOutput()).decode(errors="replace")
         self._consume_optimization_output(remaining, flush=True)
         self.start_optimization_button.setEnabled(self.optimization_strategy.currentIndex() == 0)
+        self.continue_optimization_button.setEnabled(False)
         self.pause_optimization_button.setEnabled(False)
         self.stop_optimization_button.setEnabled(False)
         if self.last_best_design_path and self.last_best_design_path.is_file():
@@ -861,10 +926,12 @@ class MainWindow(QMainWindow):
             self.statusBar().showMessage("Optimization paused; run history preserved")
         elif self._optimization_stop_requested:
             self.resume_optimization_button.setEnabled(False)
-            self._set_optimization_status("OPTIMIZATION STOPPED BY USER", "neutral")
-            self.statusBar().showMessage("Optimization stopped")
+            self.continue_optimization_button.setEnabled(True)
+            self._set_optimization_status("OPTIMIZATION STOPPED — HISTORY PRESERVED", "neutral")
+            self.statusBar().showMessage("Optimization stopped; its history can be continued")
         elif self._optimization_was_completed and self.last_best_design_path and self.last_best_design_path.is_file():
             self.resume_optimization_button.setEnabled(False)
+            self.continue_optimization_button.setEnabled(True)
             self._set_optimization_status("OPTIMIZATION COMPLETED SUCCESSFULLY", "success")
             self.statusBar().showMessage("Optimization completed")
         else:
