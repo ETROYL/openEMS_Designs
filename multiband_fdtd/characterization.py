@@ -62,16 +62,19 @@ def generate_candidate_bands(
     if len(candidates) > max_candidates:
         # Evenly retain candidates from the ordered set, while preserving the
         # complete-range candidate needed as a guaranteed coverage fallback.
-        indexes = {
-            round(index * (len(candidates) - 1) / (max_candidates - 1))
-            for index in range(max_candidates)
-        } if max_candidates > 1 else set()
-        selected = [candidates[index] for index in sorted(indexes)]
-        if full_key not in {
-            (round(item.fstart_ghz, 12), round(item.fstop_ghz, 12))
-            for item in selected
-        }:
-            selected[-1] = unique[full_key]
+        if max_candidates == 1:
+            selected = [unique[full_key]]
+        else:
+            indexes = {
+                round(index * (len(candidates) - 1) / (max_candidates - 1))
+                for index in range(max_candidates)
+            }
+            selected = [candidates[index] for index in sorted(indexes)]
+            if full_key not in {
+                (round(item.fstart_ghz, 12), round(item.fstop_ghz, 12))
+                for item in selected
+            }:
+                selected[-1] = unique[full_key]
         candidates = sorted(selected, key=lambda band: (
             band.fstart_ghz, band.fstop_ghz
         ))
