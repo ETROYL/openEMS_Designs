@@ -39,6 +39,8 @@ class MultiBandPlannerTests(unittest.TestCase):
         result = reconstruct_response(bands, (0.1, 1.0), 181)
         self.assertEqual(len(result["freq"]), 181)
         self.assertTrue(np.all(np.isfinite(result["s11"])))
+        self.assertIn("s11_raw", result)
+        self.assertTrue(np.allclose(result["s11"], result["s11_raw"]))
         self.assertTrue(np.allclose(np.abs(result["s11"]), 0.3, atol=1e-3))
 
 
