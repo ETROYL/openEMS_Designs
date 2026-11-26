@@ -1,6 +1,5 @@
 """PySide6 application shell with YAML editing and CAD preview."""
 from __future__ import annotations
-
 import tempfile
 from pathlib import Path
 
