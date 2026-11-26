@@ -820,6 +820,9 @@ class MainWindow(QMainWindow):
             f"\nContinuing existing run: {completed} stored evaluations + "
             f"{additional_budget} additional evaluations (target {target_budget})."
         )
+        self.optimization_log.appendPlainText(
+            f"New allocation: {workers} worker(s) × {threads_per_worker} thread(s) per worker."
+        )
         self._launch_optimization_process()
 
     def resume_optimization(self) -> None:
