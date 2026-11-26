@@ -14,6 +14,7 @@ def main() -> int:
     app.setApplicationName("ETROYL Electromagnetic Design")
     app.setOrganizationName("ETROYL")
     window = MainWindow()
+    app.setWindowIcon(window.windowIcon())
     window.show()
     return app.exec()
 
