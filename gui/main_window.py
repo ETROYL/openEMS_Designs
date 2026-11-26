@@ -168,8 +168,8 @@ class MainWindow(QMainWindow):
         heading.setStyleSheet("font-size: 20px; font-weight: 600;")
         description = QLabel(
             "Optimize the current YAML without modifying the source file. Each launch "
-            "creates a timestamped run inside <design>_opt. ETROYL Discrete is available now; "
-            "Optuna and SciPy will be connected next."
+            "creates a timestamped run inside <design>_opt. ETROYL Discrete and Optuna TPE "
+            "share the same discrete parameter space, FDTD workers and evaluation history."
         )
         description.setWordWrap(True)
         # The page heading already names this section; omit a second group-box title.
@@ -188,7 +188,7 @@ class MainWindow(QMainWindow):
         self.optimization_strategy = QComboBox()
         self.optimization_strategy.addItems([
             "ETROYL Discrete (Sobol + GP + Expected Improvement)",
-            "Optuna (TPE) — coming next",
+            "Optuna (TPE)",
             "SciPy (SHGO + Nelder–Mead) — coming next",
         ])
         self.optimization_strategy.currentIndexChanged.connect(self._optimization_strategy_changed)
@@ -545,13 +545,13 @@ class MainWindow(QMainWindow):
         self.optimization_canvas.draw_idle()
 
     def _optimization_strategy_changed(self, index: int) -> None:
-        enabled = index == 0
+        enabled = index in (0, 1)
         self.start_optimization_button.setEnabled(
             enabled and self._optimization_process.state() == QProcess.ProcessState.NotRunning
         )
         if not enabled:
             self._set_optimization_status(
-                "This strategy is not connected yet. ETROYL Discrete is currently available.",
+                "SciPy is not connected yet. Choose ETROYL Discrete or Optuna TPE.",
                 "neutral",
             )
 
@@ -584,8 +584,9 @@ class MainWindow(QMainWindow):
         if self._optimization_process.state() != QProcess.ProcessState.NotRunning:
             QMessageBox.information(self, "Optimization", "An optimization is already running.")
             return
-        if self.optimization_strategy.currentIndex() != 0:
-            QMessageBox.information(self, "Strategy not available", "ETROYL Discrete is the first integrated strategy.")
+        strategy_index = self.optimization_strategy.currentIndex()
+        if strategy_index not in (0, 1):
+            QMessageBox.information(self, "Strategy not available", "SciPy is not connected yet.")
             return
         if self.current_config is None:
             QMessageBox.warning(
@@ -608,7 +609,10 @@ class MainWindow(QMainWindow):
             space = DiscreteParameterSpace.from_config(config)
             if space.dimension == 0:
                 raise ValueError("No active discrete optimization variables were found in the YAML.")
-            if self.optimization_initial_samples.value() > self.optimization_budget.value():
+            if (
+                strategy_index == 0
+                and self.optimization_initial_samples.value() > self.optimization_budget.value()
+            ):
                 raise ValueError("Initial Sobol samples cannot exceed the evaluation budget.")
             resource_mode = str(self.optimization_resource_mode.currentData())
             if resource_mode == "default":
@@ -640,6 +644,7 @@ class MainWindow(QMainWindow):
             snapshot.write_text(self.editor.toPlainText(), encoding="utf-8")
             metadata_path = run_dir / "run_settings.json"
             metadata = {
+                "strategy": "etroyl_discrete" if strategy_index == 0 else "optuna_tpe",
                 "budget": self.optimization_budget.value(),
                 "initial_samples": self.optimization_initial_samples.value(),
                 "pool_size": self.optimization_pool_size.value(),
@@ -679,6 +684,9 @@ class MainWindow(QMainWindow):
         self.optimization_output_label.setText("Output: " + str(run_dir))
         self.load_best_design_button.setEnabled(False)
         self.resume_optimization_button.setEnabled(False)
+        self.optimization_log.appendPlainText(
+            "Strategy: " + ("ETROYL Discrete" if strategy_index == 0 else "Optuna TPE")
+        )
         self.optimization_log.appendPlainText("Objective: " + objective_name)
         self.optimization_log.appendPlainText(
             f"Requested allocation: {workers} worker(s) × {threads_per_worker} thread(s) per worker"
@@ -709,7 +717,9 @@ class MainWindow(QMainWindow):
         self.stop_optimization_button.setEnabled(True)
         self.kill_optimization_button.setEnabled(True)
         self._set_optimization_status("OPTIMIZATION RUNNING", "running")
-        self.optimization_log.appendPlainText("Launching / resuming ETROYL discrete optimizer…")
+        strategy = str(metadata.get("strategy", "etroyl_discrete"))
+        strategy_label = "Optuna TPE" if strategy == "optuna_tpe" else "ETROYL Discrete"
+        self.optimization_log.appendPlainText(f"Launching / resuming {strategy_label} optimizer…")
         self.statusBar().showMessage("Optimization running…")
         self._optimization_process.setWorkingDirectory(str(Path(__file__).resolve().parents[1]))
         # Run in a dedicated session so spawned FDTD workers share a killable process group.
@@ -720,6 +730,7 @@ class MainWindow(QMainWindow):
             "--config", str(self._optimization_config_path),
             "--run-dir", str(self._optimization_run_dir),
             "--budget", str(metadata["budget"]),
+            "--strategy", strategy,
             "--initial-samples", str(metadata["initial_samples"]),
             "--pool-size", str(metadata["pool_size"]),
             "--seed", str(metadata["seed"]),
