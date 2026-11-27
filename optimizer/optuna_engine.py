@@ -83,6 +83,8 @@ class OptunaTPEOptimizer:
         objective_weights: dict[str, float] | None = None,
         progress_callback: Callable[[EvaluationResult, int, int], None] | None = None,
         stop_requested: Callable[[], bool] | None = None,
+        evaluation_settings: dict[str, Any] | None = None,
+        interval_plan_path: str | None = None,
     ) -> OptimizationSummary:
         """Run at most budget new FDTD evaluations, in parallel batches."""
         if isinstance(budget, bool) or not isinstance(budget, int) or budget < 0:
@@ -121,6 +123,8 @@ class OptunaTPEOptimizer:
                 objective_name,
                 dict(objective_weights or {}),
                 int(threads_per_worker),
+                dict(evaluation_settings or {}),
+                interval_plan_path,
             ),
         ) as executor:
             while len(new_results) < budget:
