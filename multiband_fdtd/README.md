@@ -61,7 +61,7 @@ A bounded set of candidate intervals can be generated before measurement:
         max_candidates=40,
     )
 
-The complete requested range is always retained as a fallback candidate.
+The complete requested range is deliberately excluded from pilot candidates. This avoids measuring a single broad interval as a fallback; the selector must build full coverage from the bounded measured intervals.
 
 Measurements can be collected and a complete interval sequence selected in
 one call:
