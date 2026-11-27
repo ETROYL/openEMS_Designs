@@ -102,10 +102,13 @@ def format_simulation_settings(yaml_text: str) -> str:
     if "end_criteria_db" in simulation:
         decay_text = f"{simulation['end_criteria_db']} dB"
     else:
-        decay_text = (
-            "legacy linear threshold "
-            + str(simulation.get("end_criteria", 1e-4))
-        )
+        legacy_threshold = simulation.get("end_criteria", 1e-4)
+        try:
+            legacy_threshold_text = f"{float(legacy_threshold):g}"
+        except (TypeError, ValueError, OverflowError):
+            # Preserve an invalid/in-progress editor value for visibility.
+            legacy_threshold_text = str(legacy_threshold)
+        decay_text = "legacy linear threshold " + legacy_threshold_text
     return (
         f"Frequency: {frequency_text} GHz    |    "
         f"Frequency points: {simulation.get('n_pts', 301)}\n"
