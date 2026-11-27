@@ -61,6 +61,7 @@ class MainWindow(QMainWindow):
         self._simulation_config_path: Path | None = None
         self.last_simulation_dir: Path | None = None
         self.last_simulation_config: Path | None = None
+        self.last_simulation_multiband = False
         self._simulation_stdout_buffer = ""
         self._optimization_stdout_buffer = ""
         self._optimization_steps: list[int] = []
@@ -494,6 +495,12 @@ class MainWindow(QMainWindow):
             "thread count configured by parallel.py. Each run is written to a new output folder."
         )
         description.setWordWrap(True)
+        self.simulation_multiband_checkbox = QCheckBox("Use multi-band simulation")
+        self.simulation_multiband_checkbox.setChecked(True)
+        self.simulation_multiband_checkbox.setToolTip(
+            "Prepare intervals for this design, then run the accurate profile "
+            "(-40 dB, up to 1,000,000 timesteps, 1,024 output points)."
+        )
         self.simulation_settings_label = QLabel(
             "Load a design to review its frequency range and solver settings."
         )
@@ -513,6 +520,7 @@ class MainWindow(QMainWindow):
         self.simulation_log.setPlaceholderText("FDTD execution output will appear here…")
         layout.addWidget(heading)
         layout.addWidget(description)
+        layout.addWidget(self.simulation_multiband_checkbox)
         layout.addWidget(self.simulation_settings_label)
         layout.addWidget(self.run_simulation_button)
         layout.addWidget(self.stop_simulation_button)
@@ -1417,6 +1425,7 @@ class MainWindow(QMainWindow):
         self._simulation_stdout_buffer = ""
         self.last_simulation_dir = None
         self.last_simulation_config = None
+        self.last_simulation_multiband = self.simulation_multiband_checkbox.isChecked()
         self.run_postprocess_button.setEnabled(False)
         self.results_status.setText("Waiting for the FDTD simulation to complete successfully.")
         self._s11_original_pixmap = QPixmap()
@@ -1431,11 +1440,13 @@ class MainWindow(QMainWindow):
         self.run_simulation_button.setEnabled(False)
         self.stop_simulation_button.setEnabled(True)
         self.statusBar().showMessage("FDTD simulation running…")
-        self._simulation_process.start(
-            sys.executable,
-            ["-m", "gui.simulation_runner", str(self._simulation_config_path), selected_parent,
-             self.current_config.stem if self.current_config else "design"],
-        )
+        simulation_args = [
+            "-m", "gui.simulation_runner", str(self._simulation_config_path), selected_parent,
+            self.current_config.stem if self.current_config else "design",
+        ]
+        if self.last_simulation_multiband:
+            simulation_args.append("--multiband")
+        self._simulation_process.start(sys.executable, simulation_args)
 
     def stop_simulation(self) -> None:
         if self._simulation_process.state() != QProcess.ProcessState.NotRunning:
@@ -1505,8 +1516,27 @@ class MainWindow(QMainWindow):
             self._simulation_config_path = None
         if exit_code == 0:
             if self.last_simulation_dir and self.last_simulation_config and self.last_simulation_dir.is_dir() and self.last_simulation_config.is_file():
-                self.run_postprocess_button.setEnabled(True)
-                self.results_status.setText(f"Ready to post-process: {self.last_simulation_dir}")
+                if self.last_simulation_multiband:
+                    self.run_postprocess_button.setEnabled(False)
+                    self.run_postprocess_button.setToolTip(
+                        "The reconstructed multi-band response is already available; "
+                        "NF2FF processing is not supported for this workflow."
+                    )
+                    self._load_result_plot(
+                        self.s11_plot_label, self.last_simulation_dir / "s11_plot.png"
+                    )
+                    self.radiation_plot_label.setPixmap(QPixmap())
+                    self.radiation_plot_label.setText(
+                        "Far-field / NF2FF results are not available for multi-band simulations."
+                    )
+                    self.results_status.setText(
+                        "Multi-band broadband response is ready. S11 and input impedance "
+                        f"are plotted; CSV and NPZ data are saved in: {self.last_simulation_dir}"
+                    )
+                else:
+                    self.run_postprocess_button.setEnabled(True)
+                    self.run_postprocess_button.setToolTip("")
+                    self.results_status.setText(f"Ready to post-process: {self.last_simulation_dir}")
                 self._set_simulation_status("SIMULATION COMPLETED SUCCESSFULLY", "success")
                 self.statusBar().showMessage("FDTD simulation completed")
             else:
