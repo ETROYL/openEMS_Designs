@@ -158,9 +158,17 @@ def main() -> int:
             )
         except InterruptedError:
             if pause_file.exists() and not stop_file.exists():
+                print(
+                    "Interval preparation paused. Resume will repeat any unfinished preparation steps.",
+                    flush=True,
+                )
                 print("OPTIMIZATION_PAUSED=1", flush=True)
                 return 0
             if stop_file.exists():
+                print(
+                    "Interval preparation stopped after the current pilot; no candidate evaluations were started.",
+                    flush=True,
+                )
                 print("OPTIMIZATION_STOPPED=1", flush=True)
                 return 0
             raise
