@@ -168,9 +168,6 @@ def _build_nf2ff_for_band(band_dir: Path):
 def calculate_far_field(csv_path: str | Path, simulation_dir: str | Path,
                          output_dir: str | Path) -> dict:
     """Evaluate far-field patterns and antenna metrics from recorded band fields."""
-    from functools import lru_cache
-    from multiband_fdtd.engine import FrequencyBand
-
     simulation_dir = Path(simulation_dir).resolve()
     output_dir = Path(output_dir).resolve()
     manifest_path = simulation_dir / "multiband_run.json"
@@ -219,7 +216,6 @@ def calculate_far_field(csv_path: str | Path, simulation_dir: str | Path,
     freq_ghz = response["frequency_ghz"]
     s11_db = response["s11_db"]
     s11_linear = 10.0 ** (s11_db / 20.0)
-    s11_complex = np.interp(freq_ghz, freq_ghz, s11_linear)  # magnitude for mismatch efficiency
     minimum_index = int(np.argmin(s11_db))
     resonance_ghz = float(freq_ghz[minimum_index])
     theta = np.linspace(-180.0, 180.0, 361)
@@ -245,16 +241,10 @@ def calculate_far_field(csv_path: str | Path, simulation_dir: str | Path,
         total_efficiency.append(100.0 * mismatch_efficiency)
         print(f"Far-field {index}/21: {frequency_ghz:.4f} GHz, "
               f"directivity {dmax_dbi:.2f} dBi", flush=True)
-        if abs(float(frequency_ghz) - resonance_ghz) <= (
-            float(freq_ghz[-1] - freq_ghz[0]) / 40.0
-        ):
-            pattern_result = result
-
-    if pattern_result is None:
-        band_dir = band_for(resonance_ghz)[2]
-        pattern_result = nf2ff_for(band_dir).CalcNF2FF(
-            str(band_dir), resonance_ghz * 1e9, theta, phi
-        )
+    band_dir = band_for(resonance_ghz)[2]
+    pattern_result = nf2ff_for(band_dir).CalcNF2FF(
+        str(band_dir), resonance_ghz * 1e9, theta, phi
+    )
 
     import matplotlib
     matplotlib.use("Agg")
