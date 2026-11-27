@@ -24,7 +24,7 @@ class ActiveVariableTests(unittest.TestCase):
     def test_forwards_candidate_variables_to_every_band(self, run_band):
         with tempfile.TemporaryDirectory() as temp:
             config = Path(temp) / "design.yaml"
-            config.write_text("variables: {}\\n", encoding="utf-8")
+            config.write_text("variables: {}\n", encoding="utf-8")
             frequencies = np.linspace(0.1e9, 1.0e9, 2)
             run_band.return_value = BandResult(
                 FrequencyBand(0.1, 1.0, 2),
@@ -164,7 +164,7 @@ class IntegratedPlanningTests(unittest.TestCase):
 class FrozenIntervalPlanTests(unittest.TestCase):
     def _write_plan(self, directory, intervals):
         config = Path(directory) / "design.yaml"
-        config.write_text("variables: {}\\n", encoding="utf-8")
+        config.write_text("variables: {}\n", encoding="utf-8")
         digest = hashlib.sha256(config.read_bytes()).hexdigest()
         plan_path = Path(directory) / "characterization.json"
         plan_path.write_text(json.dumps({
@@ -199,7 +199,7 @@ class FrozenIntervalPlanTests(unittest.TestCase):
             config, plan = self._write_plan(temp, [
                 {"fstart_ghz": 0.1, "fstop_ghz": 1.0},
             ])
-            config.write_text("variables: {arm_length: {default: 0.05}}\\n",
+            config.write_text("variables: {arm_length: {default: 0.05}}\n",
                               encoding="utf-8")
             with self.assertRaisesRegex(ValueError, "different design"):
                 load_interval_plan(plan, config_path=config)
@@ -282,7 +282,7 @@ class CharacterizationTests(unittest.TestCase):
         requests = iter((False, True))
         with tempfile.TemporaryDirectory() as temp:
             config = Path(temp) / "design.yaml"
-            config.write_text("variables: {}\\n", encoding="utf-8")
+            config.write_text("variables: {}\n", encoding="utf-8")
             with self.assertRaisesRegex(InterruptedError, "interrupted"):
                 characterize_frequency_intervals(
                     config,
@@ -406,7 +406,7 @@ class AutomaticRunTests(unittest.TestCase):
     def test_rejects_invalid_profile_before_characterization(self):
         with tempfile.TemporaryDirectory() as temp:
             config = Path(temp) / "design.yaml"
-            config.write_text("variables: {}\\n", encoding="utf-8")
+            config.write_text("variables: {}\n", encoding="utf-8")
             with patch(
                 "multiband_fdtd.characterization.characterize_and_select_intervals"
             ) as characterize:
