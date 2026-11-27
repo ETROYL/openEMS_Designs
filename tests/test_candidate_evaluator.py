@@ -1,4 +1,5 @@
 import os
+from unittest.mock import patch
 import tempfile
 import unittest
 
@@ -64,6 +65,89 @@ class CandidateEvaluatorTests(unittest.TestCase):
         second = evaluator.evaluate((2, 1))
         self.assertEqual(first.fingerprint, second.fingerprint)
         self.assertNotEqual(first.evaluation_dir, second.evaluation_dir)
+
+    def test_fingerprint_includes_plan_and_normalizes_empty_settings(self):
+        plan_path = os.path.join(self.temp_dir.name, "characterization.json")
+        with open(plan_path, "w", encoding="utf-8") as stream:
+            stream.write('{"plan_version": 1}')
+        runner = lambda *_args: {}
+        objective = lambda *_args, **_kwargs: 0.0
+        first = CandidateEvaluator(
+            self.config_path, os.path.join(self.temp_dir.name, "runs"),
+            self.space, runner, objective,
+            interval_plan_path=plan_path,
+            evaluation_settings=None,
+        )
+        same = CandidateEvaluator(
+            self.config_path, os.path.join(self.temp_dir.name, "runs"),
+            self.space, runner, objective,
+            interval_plan_path=plan_path,
+            evaluation_settings={},
+        )
+        self.assertEqual(first.fingerprint((1, 1)), same.fingerprint((1, 1)))
+        with open(plan_path, "w", encoding="utf-8") as stream:
+            stream.write('{"plan_version": 1, "changed": true}')
+        changed = CandidateEvaluator(
+            self.config_path, os.path.join(self.temp_dir.name, "runs"),
+            self.space, runner, objective,
+            interval_plan_path=plan_path,
+            evaluation_settings={},
+        )
+        self.assertNotEqual(first.fingerprint((1, 1)), changed.fingerprint((1, 1)))
+
+    def test_existing_pipeline_uses_fixed_plan_and_candidate_variables(self):
+        from multiband_fdtd import FrequencyBand
+
+        with open(self.config_path, "w", encoding="utf-8") as stream:
+            stream.write(
+                "variables: {}\\n"
+                "simulation:\\n"
+                "  fstart: 0.1\\n"
+                "  fstop: 1.0\\n"
+                "  n_pts: 101\\n"
+                "  end_criteria_db: -18.0\\n"
+                "  max_timesteps: 25000\\n"
+            )
+        plan_path = os.path.join(self.temp_dir.name, "characterization.json")
+        with open(plan_path, "w", encoding="utf-8") as stream:
+            stream.write('{"plan_version": 1}')
+        fixed_bands = [
+            FrequencyBand(0.1, 0.6, 51),
+            FrequencyBand(0.5, 1.0, 51),
+        ]
+        simulation_result = {
+            "freq": np.array([0.1e9, 1.0e9]),
+            "s11_db": np.array([-12.0, -18.0]),
+            "z_in": np.array([50.0 + 0j, 55.0 + 0j]),
+        }
+        with (
+            patch("multiband_fdtd.load_interval_plan", return_value=fixed_bands) as load_plan,
+            patch("multiband_fdtd.run_multiband", return_value=simulation_result) as run_multi,
+            patch("objectives.minimize_s11_in_band", return_value=0.25),
+            patch.dict(os.environ, {"EM_THREADS": "3"}),
+        ):
+            evaluator = CandidateEvaluator.from_existing_pipeline(
+                self.config_path,
+                os.path.join(self.temp_dir.name, "runs"),
+                self.space,
+                objective_name="minimize_s11_in_band",
+                interval_plan_path=plan_path,
+            )
+            result = evaluator.evaluate((3, 1), evaluation_id=9)
+
+        self.assertEqual(result.status, "ok")
+        self.assertEqual(result.objective, 0.25)
+        load_plan.assert_called_once_with(
+            plan_path, n_points=101, config_path=self.config_path
+        )
+        kwargs = run_multi.call_args.kwargs
+        self.assertEqual(kwargs["bands"], fixed_bands)
+        self.assertEqual(kwargs["active_vars"], {"radius": 0.13, "gap": 0.002})
+        self.assertEqual(kwargs["frequency_range_ghz"], (0.1, 1.0))
+        self.assertEqual(kwargs["n_points"], 101)
+        self.assertEqual(kwargs["end_criteria_db"], -18.0)
+        self.assertEqual(kwargs["max_timesteps"], 25000)
+        self.assertEqual(kwargs["threads"], 3)
 
     def test_simulation_failure_is_recorded_not_hidden(self):
         def broken_runner(*_args):
