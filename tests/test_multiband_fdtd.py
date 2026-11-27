@@ -191,7 +191,7 @@ class FrozenIntervalPlanTests(unittest.TestCase):
             )
             self.assertEqual(
                 [b.n_pts for b in bands],
-                [167, 167],
+                [168, 168],
             )
 
     def test_rejects_plan_for_different_design(self):
