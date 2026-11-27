@@ -17,7 +17,7 @@ class SimulationSettingsValidationTests(unittest.TestCase):
         self.assertIn("Frequency points: 301", result)
         self.assertIn("Energy decay: -40 dB", result)
         self.assertIn("Maximum timesteps: 1000000", result)
-        self.assertIn("\\n", result)
+        self.assertIn("\n", result)
 
     def test_legacy_design_settings_are_formatted(self):
         text = """simulation:
@@ -48,24 +48,24 @@ class SimulationSettingsValidationTests(unittest.TestCase):
         self.assertIn("Frequency points: not-yet-entered", result)
 
     def test_rejects_non_numeric_frequency_typo(self):
-        text = "simulation:\\n  fstart: 0f.1\\n  fstop: 3.0\\n"
+        text = "simulation:\n  fstart: 0f.1\n  fstop: 3.0\n"
         with self.assertRaisesRegex(ValueError, "fstart"):
             format_simulation_settings(text)
 
     def test_rejects_non_increasing_frequency_range(self):
-        text = "simulation:\\n  fstart: 3.0\\n  fstop: 0.1\\n"
+        text = "simulation:\n  fstart: 3.0\n  fstop: 0.1\n"
         with self.assertRaisesRegex(ValueError, "increasing"):
             format_simulation_settings(text)
 
     def test_rejects_invalid_simulation_block(self):
         with self.assertRaisesRegex(ValueError, "simulation"):
-            format_simulation_settings("simulation: 0.1\\n")
+            format_simulation_settings("simulation: 0.1\n")
 
     def test_optimization_parser_accepts_integer_values_written_as_decimal_strings(self):
         settings = parse_simulation_settings(
-            "simulation:\\n  fstart: 0.1\\n  fstop: 1.0\\n"
-            "  n_pts: '301.0'\\n  max_timesteps: '50000.0'\\n"
-            "  end_criteria: 1e-2\\n"
+            "simulation:\n  fstart: 0.1\n  fstop: 1.0\n"
+            "  n_pts: '301.0'\n  max_timesteps: '50000.0'\n"
+            "  end_criteria: 1e-2\n"
         )
         self.assertEqual(settings["n_pts"], 301)
         self.assertEqual(settings["max_timesteps"], 50000)
