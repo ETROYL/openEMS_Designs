@@ -6,7 +6,7 @@ import json
 import math
 from dataclasses import asdict
 from pathlib import Path
-from typing import Iterable, Any
+from typing import Callable, Iterable, Any
 
 from .engine import FrequencyBand, PilotMeshLimitExceeded, _run_band
 from .planner import BandCost, select_fastest_band_sequence
@@ -95,6 +95,7 @@ def characterize_and_select_intervals(
     max_timesteps: int = 50000,
     threads: int = 1,
     max_pilot_mesh_cells: int | None = 2_000_000,
+    stop_requested: Callable[[], bool] | None = None,
 ) -> dict[str, Any]:
     """Measure generated intervals and return a reusable complete interval plan.
 
@@ -124,6 +125,7 @@ def characterize_and_select_intervals(
         max_timesteps=max_timesteps,
         threads=threads,
         max_pilot_mesh_cells=max_pilot_mesh_cells,
+        stop_requested=stop_requested,
     )
     selected = select_fastest_band_sequence(
         result["records"],
@@ -271,6 +273,7 @@ def characterize_frequency_intervals(
     max_timesteps: int = 50000,
     threads: int = 1,
     max_pilot_mesh_cells: int | None = 2_000_000,
+    stop_requested: Callable[[], bool] | None = None,
 ) -> dict[str, Any]:
     """Run short reference-design simulations for an explicit interval set.
 
@@ -308,6 +311,10 @@ def characterize_frequency_intervals(
     details = []
     skipped = []
     for index, band in enumerate(bands, start=1):
+        if stop_requested is not None and stop_requested():
+            raise InterruptedError(
+                "Interval preparation interrupted by a stop or pause request."
+            )
         try:
             result = _run_band(
                 config, root / f"pilot_{index:03d}", band,
