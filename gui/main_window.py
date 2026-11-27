@@ -1134,7 +1134,7 @@ class MainWindow(QMainWindow):
             self.statusBar().showMessage("Optimization paused; run history preserved")
         elif self._optimization_stop_requested:
             self.resume_optimization_button.setEnabled(False)
-            self.continue_optimization_button.setEnabled(True)
+            self.continue_optimization_button.setEnabled(self._has_stored_optimization_history())
             self._set_optimization_status("OPTIMIZATION STOPPED — HISTORY PRESERVED", "neutral")
             self.statusBar().showMessage("Optimization stopped; its history can be continued")
         elif self._optimization_was_completed and self.last_best_design_path and self.last_best_design_path.is_file():
