@@ -559,13 +559,22 @@ class MainWindow(QMainWindow):
         self.s11_plot_label = QLabel("S-parameter / impedance plot will appear here.")
         self.s11_plot_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
         self.s11_plot_label.setMinimumWidth(400)
+        self.s11_plot_label.setMinimumHeight(380)
+        self.s11_plot_label.setSizePolicy(
+            QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Expanding
+        )
         self.s11_plot_label.setStyleSheet("background: palette(alternate-base); border-radius: 6px;")
         self.radiation_plot_label = QLabel("Radiation / far-field plot will appear here.")
         self.radiation_plot_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
         self.radiation_plot_label.setMinimumWidth(400)
+        self.radiation_plot_label.setMinimumHeight(380)
+        self.radiation_plot_label.setSizePolicy(
+            QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Expanding
+        )
         self.radiation_plot_label.setStyleSheet("background: palette(alternate-base); border-radius: 6px;")
 
         plots_widget = QWidget()
+        plots_widget.setMinimumHeight(420)
         plots_layout = QHBoxLayout(plots_widget)
         plots_layout.setContentsMargins(18, 18, 18, 18)
         plots_layout.setSpacing(22)
@@ -1665,7 +1674,7 @@ class MainWindow(QMainWindow):
                     if resonances else "No distinct local minima detected"
                 ),
             ]
-            self.results_summary.setText("\\n".join(lines))
+            self.results_summary.setText("\n".join(lines))
         except (OSError, ValueError, KeyError, TypeError) as exc:
             self.results_summary.setText(f"Could not load broadband performance metrics: {exc}")
 
