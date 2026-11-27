@@ -4,13 +4,14 @@ from __future__ import annotations
 import argparse
 import json
 import math
+import shutil
 
 from gui.cpu_resources import detect_cpu_resources, validate_allocation
 from pathlib import Path
 
 import yaml
 
-from design import load_config
+from design import get_simulation_settings, load_config
 from optimizer import (
     CandidateEvaluator,
     DiscreteParameterSpace,
@@ -75,6 +76,65 @@ def main() -> int:
         evaluation_settings = None
     elif not isinstance(evaluation_settings, dict):
         raise ValueError("Optimization-only mode requires saved evaluation settings.")
+
+    interval_plan_path = None
+    if bool(run_settings.get("use_multiband", False)):
+        resolved_config = load_config(str(config_path))
+        effective_settings = get_simulation_settings(
+            resolved_config, "optimization", overrides=evaluation_settings
+        )
+        frequency_range = (
+            float(effective_settings["fstart"]),
+            float(effective_settings["fstop"]),
+        )
+        output_points = int(effective_settings.get("n_pts", 301))
+        saved_plan = run_settings.get("interval_plan_path")
+        if saved_plan:
+            interval_plan_path = str(Path(saved_plan).expanduser().resolve())
+            from multiband_fdtd import load_interval_plan
+            load_interval_plan(
+                interval_plan_path,
+                n_points=output_points,
+                config_path=config_path,
+            )
+            print(f"Using saved interval plan: {interval_plan_path}", flush=True)
+        else:
+            database_path = run_dir / "evaluations.sqlite"
+            if database_path.exists():
+                raise ValueError(
+                    "This optimization already has evaluation history but no saved "
+                    "interval plan. Refusing to prepare a different plan for an existing run."
+                )
+            preparation_dir = run_dir / "interval_preparation"
+            if preparation_dir.exists():
+                shutil.rmtree(preparation_dir)
+            print(
+                "Preparing fixed intervals from the YAML default geometry. "
+                "This is performed once before candidate workers start.",
+                flush=True,
+            )
+            from multiband_fdtd import characterize_and_select_intervals
+            plan = characterize_and_select_intervals(
+                config_path=config_path,
+                output_dir=preparation_dir,
+                frequency_range_ghz=frequency_range,
+            )
+            interval_plan_path = str(Path(plan["manifest_path"]).resolve())
+            run_settings["interval_plan_path"] = interval_plan_path
+            run_settings["interval_plan_frequency_range_ghz"] = list(frequency_range)
+            metadata_path.write_text(
+                json.dumps(run_settings, indent=2), encoding="utf-8"
+            )
+            print(
+                f"Prepared {len(plan['selected_bands'])} fixed interval(s): "
+                + ", ".join(
+                    f"{band.fstart_ghz:.3f}–{band.fstop_ghz:.3f} GHz"
+                    for band in plan["selected_bands"]
+                ),
+                flush=True,
+            )
+            print(f"Saved interval plan: {interval_plan_path}", flush=True)
+
     space = DiscreteParameterSpace.from_config(config)
     if space.dimension == 0:
         raise ValueError("The YAML contains no active discrete optimization variables.")
@@ -132,6 +192,8 @@ def main() -> int:
             RuntimeError("Simulation must execute in a spawned FDTD worker")
         ),
         objective_function=lambda *_args, **_kwargs: float("nan"),
+        interval_plan_path=interval_plan_path,
+        evaluation_settings=evaluation_settings,
     )
 
     with EvaluationStore(database) as store:
@@ -216,6 +278,7 @@ def main() -> int:
             progress_callback=report,
             stop_requested=lambda: stop_file.exists() or pause_file.exists(),
             evaluation_settings=evaluation_settings,
+            interval_plan_path=interval_plan_path,
         )
 
         print(f"\n========== {strategy_label.upper()} OPTIMIZATION SUMMARY ==========", flush=True)
