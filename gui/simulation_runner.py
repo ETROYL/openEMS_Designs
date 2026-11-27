@@ -7,6 +7,71 @@ from openEMS import openEMS
 from design import build_design, get_simulation_settings, load_config
 from parallel import NUM_THREADS
 
+def _unique_output_dir(output_parent: Path, design_name: str) -> Path:
+    output_dir = _unique_output_dir(output_parent, design_name)
+    output_dir.mkdir(parents=True, exist_ok=True)
+    return output_dir
+
+
+def run_multiband_simulation(config_path: Path, output_parent: Path, design_name: str) -> Path:
+    """Run an automatically planned multi-band simulation with the accurate profile."""
+    cfg = load_config(str(config_path))
+    simulation = get_simulation_settings(cfg, "simulation")
+    fstart = float(simulation["fstart"])
+    fstop = float(simulation["fstop"])
+    if fstart <= 0 or fstop <= fstart:
+        raise ValueError("simulation.fstart/fstop must define a positive increasing frequency range")
+
+    output_dir = _unique_output_dir(output_parent, design_name)
+    snapshot_path = output_dir / "design.yaml"
+    print(f"Design: {design_name}", flush=True)
+    print("Simulation engine: multi-band", flush=True)
+    print("Simulation profile: accurate (-40 dB, 1,000,000 timesteps, 1,024 points)", flush=True)
+    print(f"Frequency range: {fstart:g}–{fstop:g} GHz", flush=True)
+    print(f"OpenMP threads per band: {NUM_THREADS}", flush=True)
+    print("Preparing intervals for the current design geometry…", flush=True)
+
+    from multiband_fdtd import run_multiband_auto
+    import matplotlib
+    matplotlib.use("Agg")
+    import matplotlib.pyplot as plt
+
+    result = run_multiband_auto(
+        config_path=config_path,
+        output_dir=output_dir,
+        frequency_range_ghz=(fstart, fstop),
+        profile="accurate",
+        threads=NUM_THREADS,
+    )
+    snapshot_path.write_text(config_path.read_text(encoding="utf-8"), encoding="utf-8")
+
+    figure, (s11_axis, impedance_axis) = plt.subplots(2, 1, figsize=(10, 7), sharex=True)
+    s11_axis.plot(result["frequency_ghz"], result["s11_db"], linewidth=1.6)
+    s11_axis.set_ylabel("|S11| (dB)")
+    s11_axis.set_title("Broadband S-parameter response")
+    s11_axis.grid(True, alpha=0.3)
+    impedance_axis.plot(result["frequency_ghz"], result["z_in"].real, label="Real")
+    impedance_axis.plot(result["frequency_ghz"], result["z_in"].imag, label="Imaginary")
+    impedance_axis.set_xlabel("Frequency (GHz)")
+    impedance_axis.set_ylabel("Input impedance (Ohm)")
+    impedance_axis.grid(True, alpha=0.3)
+    impedance_axis.legend()
+    figure.tight_layout()
+    figure.savefig(output_dir / "s11_plot.png", dpi=180)
+    plt.close(figure)
+
+    print(f"Output directory: {output_dir}", flush=True)
+    print(f"SIMULATION_OUTPUT_DIR={output_dir.resolve()}", flush=True)
+    print(f"SIMULATION_CONFIG={snapshot_path.resolve()}", flush=True)
+    print(f"Selected intervals: {len(result['bands'])}", flush=True)
+    print(f"Total production FDTD runtime: {result['total_runtime_seconds']:.2f} s", flush=True)
+    print(f"Broadband response: {output_dir / 'broadband_response.csv'}", flush=True)
+    print("Far-field/NF2FF post-processing is not available for the reconstructed multi-band response.", flush=True)
+    print("Multi-band FDTD simulation completed successfully.", flush=True)
+    return output_dir
+
+
+
 
 def run_simulation(config_path: Path, output_parent: Path, design_name: str) -> Path:
     cfg = load_config(str(config_path))
@@ -68,8 +133,10 @@ def main() -> int:
     parser.add_argument("config", type=Path)
     parser.add_argument("output_parent", type=Path)
     parser.add_argument("design_name")
+    parser.add_argument("--multiband", action="store_true", help="Use automatic multi-band execution with the accurate profile")
     args = parser.parse_args()
-    run_simulation(args.config.resolve(), args.output_parent.resolve(), args.design_name)
+    runner = run_multiband_simulation if args.multiband else run_simulation
+    runner(args.config.resolve(), args.output_parent.resolve(), args.design_name)
     return 0
 
 
