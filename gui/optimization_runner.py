@@ -21,6 +21,62 @@ from optimizer import (
 )
 
 
+
+
+def _prepare_interval_plan(
+    config_path: Path,
+    run_dir: Path,
+    run_settings: dict,
+    frequency_range: tuple[float, float],
+    output_points: int,
+):
+    """Load an existing frozen plan or prepare it once for a new run."""
+    from multiband_fdtd import (
+        characterize_and_select_intervals,
+        load_interval_plan,
+    )
+
+    saved_plan = run_settings.get("interval_plan_path")
+    if saved_plan:
+        plan_path = str(Path(saved_plan).expanduser().resolve())
+        saved_range = run_settings.get("interval_plan_frequency_range_ghz")
+        if saved_range is not None and (
+            len(saved_range) != 2
+            or not math.isclose(float(saved_range[0]), frequency_range[0], abs_tol=1e-12)
+            or not math.isclose(float(saved_range[1]), frequency_range[1], abs_tol=1e-12)
+        ):
+            raise ValueError(
+                "The saved interval plan frequency range does not match the current "
+                "optimization settings. Start a new optimization to change the range."
+            )
+        bands = load_interval_plan(
+            plan_path, n_points=output_points, config_path=config_path
+        )
+        return plan_path, bands, False
+
+    if (run_dir / "evaluations.sqlite").exists():
+        raise ValueError(
+            "This optimization already has evaluation history but no saved interval "
+            "plan. Refusing to prepare a different plan for an existing run."
+        )
+
+    preparation_dir = run_dir / "interval_preparation"
+    if preparation_dir.exists():
+        shutil.rmtree(preparation_dir)
+    plan = characterize_and_select_intervals(
+        config_path=config_path,
+        output_dir=preparation_dir,
+        frequency_range_ghz=frequency_range,
+    )
+    plan_path = str(Path(plan["manifest_path"]).resolve())
+    run_settings["interval_plan_path"] = plan_path
+    run_settings["interval_plan_frequency_range_ghz"] = list(frequency_range)
+    metadata_path = run_dir / "run_settings.json"
+    metadata_path.write_text(json.dumps(run_settings, indent=2), encoding="utf-8")
+    return plan_path, plan["selected_bands"], True
+
+
+
 def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--config", required=True, help="Immutable YAML snapshot for this optimization")
@@ -88,52 +144,26 @@ def main() -> int:
             float(effective_settings["fstop"]),
         )
         output_points = int(effective_settings.get("n_pts", 301))
-        saved_plan = run_settings.get("interval_plan_path")
-        if saved_plan:
-            interval_plan_path = str(Path(saved_plan).expanduser().resolve())
-            from multiband_fdtd import load_interval_plan
-            load_interval_plan(
-                interval_plan_path,
-                n_points=output_points,
-                config_path=config_path,
-            )
-            print(f"Using saved interval plan: {interval_plan_path}", flush=True)
-        else:
-            database_path = run_dir / "evaluations.sqlite"
-            if database_path.exists():
-                raise ValueError(
-                    "This optimization already has evaluation history but no saved "
-                    "interval plan. Refusing to prepare a different plan for an existing run."
-                )
-            preparation_dir = run_dir / "interval_preparation"
-            if preparation_dir.exists():
-                shutil.rmtree(preparation_dir)
+        print(
+            "Preparing fixed intervals from the YAML default geometry "
+            "or loading the saved plan.",
+            flush=True,
+        )
+        interval_plan_path, fixed_bands, created_plan = _prepare_interval_plan(
+            config_path, run_dir, run_settings, frequency_range, output_points
+        )
+        if created_plan:
             print(
-                "Preparing fixed intervals from the YAML default geometry. "
-                "This is performed once before candidate workers start.",
-                flush=True,
-            )
-            from multiband_fdtd import characterize_and_select_intervals
-            plan = characterize_and_select_intervals(
-                config_path=config_path,
-                output_dir=preparation_dir,
-                frequency_range_ghz=frequency_range,
-            )
-            interval_plan_path = str(Path(plan["manifest_path"]).resolve())
-            run_settings["interval_plan_path"] = interval_plan_path
-            run_settings["interval_plan_frequency_range_ghz"] = list(frequency_range)
-            metadata_path.write_text(
-                json.dumps(run_settings, indent=2), encoding="utf-8"
-            )
-            print(
-                f"Prepared {len(plan['selected_bands'])} fixed interval(s): "
+                f"Prepared {len(fixed_bands)} fixed interval(s): "
                 + ", ".join(
                     f"{band.fstart_ghz:.3f}–{band.fstop_ghz:.3f} GHz"
-                    for band in plan["selected_bands"]
+                    for band in fixed_bands
                 ),
                 flush=True,
             )
             print(f"Saved interval plan: {interval_plan_path}", flush=True)
+        else:
+            print(f"Using saved interval plan: {interval_plan_path}", flush=True)
 
     space = DiscreteParameterSpace.from_config(config)
     if space.dimension == 0:
