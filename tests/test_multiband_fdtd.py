@@ -15,6 +15,7 @@ from multiband_fdtd.planner import BandCost, select_fastest_band_sequence
 from multiband_fdtd.characterization import (
     characterize_frequency_intervals, generate_candidate_bands,
     characterize_and_select_intervals, load_interval_plan,
+    _load_cached_interval_plan, _store_cached_interval_plan,
 )
 
 
@@ -159,6 +160,99 @@ class IntegratedPlanningTests(unittest.TestCase):
             )
             characterize.assert_called_once()
 
+
+
+class IntervalPlanCacheTests(unittest.TestCase):
+    def test_round_trips_a_compatible_cached_plan(self):
+        with tempfile.TemporaryDirectory() as temp:
+            config = Path(temp) / "design.yaml"
+            config.write_text("variables: {}\\n", encoding="utf-8")
+            digest = hashlib.sha256(config.read_bytes()).hexdigest()
+            cache_path = Path(temp) / "cache" / ("a" * 64 + ".json")
+            manifest = {
+                "plan_version": 1,
+                "config_sha256": digest,
+                "candidate_generation": {"n_pts": 41},
+                "intervals": [
+                    {
+                        "fstart_ghz": 0.1, "fstop_ghz": 0.6,
+                        "runtime_seconds": 1.0, "mesh_cells": 1000,
+                    },
+                    {
+                        "fstart_ghz": 0.5, "fstop_ghz": 1.0,
+                        "runtime_seconds": 1.2, "mesh_cells": 1200,
+                    },
+                ],
+                "selection": {
+                    "frequency_range_ghz": [0.1, 1.0],
+                    "selected_intervals": [
+                        {
+                            "fstart_ghz": 0.1, "fstop_ghz": 0.6,
+                            "runtime_seconds": 1.0, "mesh_cells": 1000,
+                        },
+                        {
+                            "fstart_ghz": 0.5, "fstop_ghz": 1.0,
+                            "runtime_seconds": 1.2, "mesh_cells": 1200,
+                        },
+                    ],
+                },
+            }
+            _store_cached_interval_plan(cache_path, manifest)
+            loaded = _load_cached_interval_plan(
+                cache_path, config_path=config,
+                fingerprint=cache_path.stem, n_pts=41,
+            )
+            self.assertIsNotNone(loaded)
+            self.assertEqual(
+                [(b.fstart_ghz, b.fstop_ghz)
+                 for b in loaded["selected_bands"]],
+                [(0.1, 0.6), (0.5, 1.0)],
+            )
+            self.assertEqual(len(loaded["records"]), 2)
+
+    def test_rejects_cache_for_changed_design(self):
+        with tempfile.TemporaryDirectory() as temp:
+            config = Path(temp) / "design.yaml"
+            config.write_text("variables: {}\\n", encoding="utf-8")
+            digest = hashlib.sha256(config.read_bytes()).hexdigest()
+            cache_path = Path(temp) / "cache" / ("b" * 64 + ".json")
+            manifest = {
+                "plan_version": 1,
+                "config_sha256": digest,
+                "candidate_generation": {"n_pts": 41},
+                "intervals": [
+                    {
+                        "fstart_ghz": 0.1, "fstop_ghz": 1.0,
+                        "runtime_seconds": 1.0, "mesh_cells": 1000,
+                    }
+                ],
+                "selection": {
+                    "frequency_range_ghz": [0.1, 1.0],
+                    "selected_intervals": [
+                        {
+                            "fstart_ghz": 0.1, "fstop_ghz": 1.0,
+                            "runtime_seconds": 1.0, "mesh_cells": 1000,
+                        }
+                    ],
+                },
+            }
+            _store_cached_interval_plan(cache_path, manifest)
+            config.write_text(
+                "variables: {arm_length: {default: 0.2}}\\n",
+                encoding="utf-8",
+            )
+            loaded = _load_cached_interval_plan(
+                cache_path, config_path=config,
+                fingerprint=cache_path.stem, n_pts=41,
+            )
+            self.assertIsNone(loaded)
+
+    def test_cache_write_is_atomic_and_creates_parent(self):
+        with tempfile.TemporaryDirectory() as temp:
+            cache_path = Path(temp) / "nested" / "plan.json"
+            _store_cached_interval_plan(cache_path, {"plan_version": 1})
+            self.assertTrue(cache_path.is_file())
+            self.assertFalse(list(cache_path.parent.glob("*.tmp")))
 
 
 class FrozenIntervalPlanTests(unittest.TestCase):
