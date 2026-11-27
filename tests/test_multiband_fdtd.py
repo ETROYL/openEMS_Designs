@@ -255,6 +255,82 @@ class IntervalPlanCacheTests(unittest.TestCase):
             self.assertFalse(list(cache_path.parent.glob("*.tmp")))
 
 
+    @patch("multiband_fdtd.characterization._interval_plan_fingerprint",
+           return_value="c" * 64)
+    @patch("multiband_fdtd.characterization.characterize_frequency_intervals")
+    def test_second_request_reuses_plan_without_running_pilots(
+        self, characterize, fingerprint
+    ):
+        from multiband_fdtd.characterization import BandCost
+
+        def fake_characterize(config, output, bands, **kwargs):
+            output = Path(output)
+            output.mkdir(parents=True, exist_ok=False)
+            records = [
+                BandCost(
+                    band.fstart_ghz, band.fstop_ghz, 1.0,
+                    1000, None,
+                )
+                for band in bands
+            ]
+            digest = hashlib.sha256(Path(config).read_bytes()).hexdigest()
+            details = [
+                {
+                    "fstart_ghz": item.fstart_ghz,
+                    "fstop_ghz": item.fstop_ghz,
+                    "runtime_seconds": item.runtime_seconds,
+                    "mesh_cells": item.mesh_cells,
+                    "n_pts": 41,
+                    "output_dir": "pilot",
+                }
+                for item in records
+            ]
+            manifest = {
+                "plan_version": 1,
+                "config_path": str(Path(config).resolve()),
+                "config_sha256": digest,
+                "end_criteria_db": kwargs["end_criteria_db"],
+                "max_timesteps": kwargs["max_timesteps"],
+                "threads": kwargs["threads"],
+                "max_pilot_mesh_cells": kwargs["max_pilot_mesh_cells"],
+                "intervals": details,
+                "skipped_intervals": [],
+            }
+            manifest_path = output / "characterization.json"
+            manifest_path.write_text(json.dumps(manifest), encoding="utf-8")
+            return {
+                "records": records,
+                "manifest": manifest,
+                "manifest_path": str(manifest_path),
+                "output_dir": str(output),
+            }
+
+        characterize.side_effect = fake_characterize
+        with tempfile.TemporaryDirectory() as temp:
+            config = Path(temp) / "design.yaml"
+            config.write_text("variables: {}\\n", encoding="utf-8")
+            cache = Path(temp) / "cache"
+            common = {
+                "frequency_range_ghz": (0.1, 1.1),
+                "interval_widths_ghz": (0.5, 1.0),
+                "boundary_step_ghz": 0.25,
+                "n_pts": 41,
+                "minimum_overlap_ghz": 0.1,
+                "cache_dir": cache,
+            }
+            first = characterize_and_select_intervals(
+                config, Path(temp) / "run1", **common
+            )
+            second = characterize_and_select_intervals(
+                config, Path(temp) / "run2", **common
+            )
+            self.assertFalse(first["cache_hit"])
+            self.assertTrue(second["cache_hit"])
+            self.assertEqual(len(second["selected_bands"]), len(first["selected_bands"]))
+            self.assertTrue(Path(second["manifest_path"]).is_file())
+            self.assertEqual(characterize.call_count, 1)
+            fingerprint.assert_called()
+
 class FrozenIntervalPlanTests(unittest.TestCase):
     def _write_plan(self, directory, intervals):
         config = Path(directory) / "design.yaml"
