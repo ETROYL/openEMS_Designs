@@ -23,6 +23,7 @@ class BroadbandResultsTests(unittest.TestCase):
             [3.0, 0.05, 0.0, 0.05, 0.0, -26.0, 51, 3, 51, 3],
             [4.0, 0.2, 0.0, 0.2, 0.0, -8.0, 60, 5, 60, 5],
             [5.0, 0.02, 0.0, 0.02, 0.0, -34.0, 50, 0, 50, 0],
+            [6.0, 0.2, 0.0, 0.2, 0.0, -10.0, 55, 2, 55, 2],
         ]
         with path.open("w", newline="", encoding="utf-8") as handle:
             writer = csv.writer(handle)
