@@ -82,7 +82,8 @@ def _count_mesh_cells(csx: Any) -> int | None:
 def _run_band(config_path: Path, output_dir: Path, band: FrequencyBand,
               end_criteria: float, max_timesteps: int, threads: int,
               max_mesh_cells: int | None = None,
-              active_vars: Mapping[str, Any] | None = None) -> BandResult:
+              active_vars: Mapping[str, Any] | None = None,
+              record_far_field: bool = False) -> BandResult:
     os.environ["OMP_NUM_THREADS"] = str(threads)
     from CSXCAD import ContinuousStructure
     from openEMS import openEMS
@@ -104,7 +105,7 @@ def _run_band(config_path: Path, output_dir: Path, band: FrequencyBand,
     fdtd.SetBoundaryCond(["PML_8"] * 6)
     build_design(
         csx, fdtd, config_file=str(band_yaml), active_vars=active_vars,
-        enable_nf2ff=False,
+        enable_nf2ff=record_far_field,
     )
     cells = _count_mesh_cells(csx)
     if max_mesh_cells is not None:
@@ -138,7 +139,7 @@ def _run_band(config_path: Path, output_dir: Path, band: FrequencyBand,
     post_fdtd.SetGaussExcite(f0, fc)
     port, _ = build_design(
         post_csx, post_fdtd, config_file=str(band_yaml),
-        active_vars=active_vars, enable_nf2ff=False,
+        active_vars=active_vars, enable_nf2ff=record_far_field,
     )
     frequency_hz = np.linspace(fstart, fstop, band.n_pts)
     port.CalcPort(str(output_dir), frequency_hz)
@@ -152,6 +153,7 @@ def _run_band(config_path: Path, output_dir: Path, band: FrequencyBand,
         "max_timesteps": max_timesteps, "threads": threads,
         "runtime_seconds": elapsed, "mesh_cells": cells,
         "response_file": "response.npz",
+        "far_field_recorded": bool(record_far_field),
     }
     (output_dir / "band_metadata.json").write_text(
         json.dumps(metadata, indent=2), encoding="utf-8"
@@ -260,6 +262,7 @@ def run_multiband(
     threads: int = 1,
     smoothing_sigma_points: float = 0.0,
     active_vars: Mapping[str, Any] | None = None,
+    record_far_field: bool = False,
 ) -> dict[str, Any]:
     """Run multi-band FDTD and return standard freq/S11/impedance arrays.
 
@@ -309,6 +312,7 @@ def run_multiband(
         "max_timesteps": max_ts, "threads": threads,
         "smoothing_sigma_points": smoothing_sigma_points,
         "bands": [asdict(band) for band in normalized],
+        "far_field_recorded": bool(record_far_field),
     }
     (root / "multiband_run.json").write_text(
         json.dumps(manifest, indent=2), encoding="utf-8"
@@ -319,6 +323,7 @@ def run_multiband(
         results.append(_run_band(
             config, root / f"band_{index:02d}", band,
             end_linear, max_ts, threads, active_vars=active_vars,
+            record_far_field=record_far_field,
         ))
     combined = reconstruct_response(
         results, requested, sample_count,
@@ -375,6 +380,7 @@ def run_multiband_auto(
     threads: int = 1,
     smoothing_sigma_points: float = 0.0,
     plan_cache_dir: str | Path | None = None,
+    record_far_field: bool = False,
 ) -> dict[str, Any]:
     """Prepare an interval plan, then run the requested production profile.
 
@@ -473,6 +479,7 @@ def run_multiband_auto(
         max_timesteps=max_timesteps,
         threads=threads,
         smoothing_sigma_points=smoothing_sigma_points,
+        record_far_field=record_far_field,
     )
     orchestration_manifest = {
         "profile": profile,
@@ -503,6 +510,7 @@ def run_multiband_auto(
             "n_points": production_points,
             "threads": int(threads),
             "smoothing_sigma_points": float(smoothing_sigma_points),
+            "far_field_recorded": bool(record_far_field),
         },
     }
     manifest_path = root / "automatic_run.json"
