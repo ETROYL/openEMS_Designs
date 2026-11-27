@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import hashlib
+import importlib.util
 import json
 import math
 from dataclasses import asdict
@@ -96,6 +97,7 @@ def characterize_and_select_intervals(
     threads: int = 1,
     max_pilot_mesh_cells: int | None = 2_000_000,
     stop_requested: Callable[[], bool] | None = None,
+    cache_dir: str | Path | None = None,
 ) -> dict[str, Any]:
     """Measure generated intervals and return a reusable complete interval plan.
 
@@ -117,6 +119,52 @@ def characterize_and_select_intervals(
         n_pts=n_pts,
         max_candidates=max_candidates,
     )
+
+    cache_fingerprint = None
+    cache_path = None
+    if cache_dir is not None:
+        cache_fingerprint = _interval_plan_fingerprint(
+            config_path,
+            frequency_range_ghz=frequency_range_ghz,
+            interval_widths_ghz=widths,
+            boundary_step_ghz=boundary_step_ghz,
+            n_pts=n_pts,
+            max_candidates=max_candidates,
+            minimum_overlap_ghz=minimum_overlap_ghz,
+            end_criteria_db=end_criteria_db,
+            max_timesteps=max_timesteps,
+            threads=threads,
+            max_pilot_mesh_cells=max_pilot_mesh_cells,
+        )
+        if cache_fingerprint is not None:
+            cache_path = Path(cache_dir).expanduser().resolve() / (
+                cache_fingerprint + ".json"
+            )
+            cached = _load_cached_interval_plan(
+                cache_path, config_path=config_path,
+                fingerprint=cache_fingerprint, n_pts=n_pts,
+            )
+            if cached is not None:
+                root = Path(output_dir).expanduser().resolve()
+                root.mkdir(parents=True, exist_ok=False)
+                manifest_path = root / "characterization.json"
+                manifest = cached["manifest"]
+                manifest["cache_hit"] = True
+                manifest_path.write_text(
+                    json.dumps(manifest, indent=2), encoding="utf-8"
+                )
+                return {
+                    "records": cached["records"],
+                    "manifest": manifest,
+                    "manifest_path": str(manifest_path),
+                    "output_dir": str(root),
+                    "candidates": candidates,
+                    "selected": cached["selected"],
+                    "selected_bands": cached["selected_bands"],
+                    "selection": cached["selection"],
+                    "cache_hit": True,
+                }
+
     result = characterize_frequency_intervals(
         config_path,
         output_dir,
@@ -157,9 +205,12 @@ def characterize_and_select_intervals(
         "max_pilot_mesh_cells": max_pilot_mesh_cells,
     }
     result["manifest"]["selection"] = selection
+    result["manifest"]["cache_hit"] = False
     Path(result["manifest_path"]).write_text(
         json.dumps(result["manifest"], indent=2), encoding="utf-8"
     )
+    if cache_path is not None and cache_fingerprint is not None:
+        _store_cached_interval_plan(cache_path, result["manifest"])
     candidate_by_pair = {
         (round(item.fstart_ghz, 12), round(item.fstop_ghz, 12)): item
         for item in candidates
@@ -172,7 +223,119 @@ def characterize_and_select_intervals(
     result["selected"] = selected
     result["selected_bands"] = selected_bands
     result["selection"] = selection
+    result["cache_hit"] = False
     return result
+
+
+def _interval_plan_fingerprint(
+    config_path: str | Path,
+    *,
+    frequency_range_ghz: tuple[float, float],
+    interval_widths_ghz: Iterable[float],
+    boundary_step_ghz: float,
+    n_pts: int,
+    max_candidates: int,
+    minimum_overlap_ghz: float,
+    end_criteria_db: float,
+    max_timesteps: int,
+    threads: int,
+    max_pilot_mesh_cells: int | None,
+) -> str | None:
+    """Return a cache key, or None when the design source cannot be identified."""
+    config = Path(config_path).expanduser().resolve()
+    if not config.is_file():
+        return None
+    try:
+        spec = importlib.util.find_spec("design")
+        source_path = Path(spec.origin).resolve() if spec and spec.origin else None
+        if source_path is None or not source_path.is_file():
+            return None
+        design_digest = hashlib.sha256(source_path.read_bytes()).hexdigest()
+    except (ImportError, OSError, ValueError):
+        return None
+
+    payload = {
+        "cache_schema": 1,
+        "config_sha256": hashlib.sha256(config.read_bytes()).hexdigest(),
+        "design_source_sha256": design_digest,
+        "frequency_range_ghz": list(map(float, frequency_range_ghz)),
+        "interval_widths_ghz": sorted(set(map(float, interval_widths_ghz))),
+        "boundary_step_ghz": float(boundary_step_ghz),
+        "pilot_n_pts": int(n_pts),
+        "max_candidates": int(max_candidates),
+        "minimum_overlap_ghz": float(minimum_overlap_ghz),
+        "pilot_end_criteria_db": float(end_criteria_db),
+        "pilot_max_timesteps": int(max_timesteps),
+        "pilot_threads": int(threads),
+        "max_pilot_mesh_cells": max_pilot_mesh_cells,
+    }
+    encoded = json.dumps(payload, sort_keys=True, separators=(",", ":"))
+    return hashlib.sha256(encoded.encode("utf-8")).hexdigest()
+
+
+def _load_cached_interval_plan(
+    cache_path: Path,
+    *,
+    config_path: str | Path,
+    fingerprint: str,
+    n_pts: int,
+) -> dict[str, Any] | None:
+    """Load a cache entry only when its key and plan structure are valid."""
+    if not cache_path.is_file():
+        return None
+    try:
+        manifest = json.loads(cache_path.read_text(encoding="utf-8"))
+        if (not isinstance(manifest, dict)
+                or manifest.get("cache_fingerprint") != fingerprint
+                or manifest.get("plan_version") != 1
+                or not isinstance(manifest.get("selection"), dict)):
+            return None
+        selected_bands = load_interval_plan(
+            cache_path, config_path=config_path
+        )
+        selected = [
+            BandCost(
+                float(item["fstart_ghz"]),
+                float(item["fstop_ghz"]),
+                float(item["runtime_seconds"]),
+                item.get("mesh_cells"),
+                None,
+            )
+            for item in manifest["selection"]["selected_intervals"]
+        ]
+        records = [
+            BandCost(
+                float(item["fstart_ghz"]),
+                float(item["fstop_ghz"]),
+                float(item["runtime_seconds"]),
+                item.get("mesh_cells"),
+                None,
+            )
+            for item in manifest.get("intervals", [])
+        ]
+        if not selected or not records:
+            return None
+        if any(band.n_pts != n_pts for band in selected_bands):
+            return None
+        return {
+            "manifest": manifest,
+            "selected_bands": selected_bands,
+            "selected": selected,
+            "records": records,
+            "selection": manifest["selection"],
+        }
+    except (OSError, ValueError, TypeError, KeyError, json.JSONDecodeError):
+        return None
+
+
+def _store_cached_interval_plan(cache_path: Path, manifest: dict[str, Any]) -> None:
+    """Atomically persist a completed plan; partial cache files are never visible."""
+    cache_path.parent.mkdir(parents=True, exist_ok=True)
+    payload = dict(manifest)
+    payload["cache_fingerprint"] = cache_path.stem
+    temporary = cache_path.with_suffix(".tmp")
+    temporary.write_text(json.dumps(payload, indent=2), encoding="utf-8")
+    temporary.replace(cache_path)
 
 
 
