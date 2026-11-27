@@ -374,6 +374,7 @@ def run_multiband_auto(
     max_timesteps: int | None = None,
     threads: int = 1,
     smoothing_sigma_points: float = 0.0,
+    plan_cache_dir: str | Path | None = None,
 ) -> dict[str, Any]:
     """Prepare an interval plan, then run the requested production profile.
 
@@ -432,6 +433,11 @@ def run_multiband_auto(
         max_timesteps=pilot_max_timesteps,
         threads=pilot_threads,
         max_pilot_mesh_cells=max_pilot_mesh_cells,
+        cache_dir=(
+            Path(plan_cache_dir).expanduser().resolve()
+            if plan_cache_dir is not None
+            else Path.home() / ".cache" / "etroyl" / "openems" / "interval-plans"
+        ),
     )
     pilot_bands = plan["selected_bands"]
     if not pilot_bands:
@@ -467,6 +473,7 @@ def run_multiband_auto(
     orchestration_manifest = {
         "profile": profile,
         "frequency_range_ghz": list(map(float, frequency_range_ghz)),
+        "planning_cache_hit": bool(plan.get("cache_hit", False)),
         "characterization_manifest": str(
             Path(plan["manifest_path"]).resolve()
         ),
