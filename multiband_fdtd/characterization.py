@@ -7,7 +7,7 @@ from dataclasses import asdict
 from pathlib import Path
 from typing import Iterable, Any
 
-from .engine import FrequencyBand, _run_band
+from .engine import FrequencyBand, PilotMeshLimitExceeded, _run_band
 from .planner import BandCost, select_fastest_band_sequence
 
 
@@ -23,7 +23,8 @@ def generate_candidate_bands(
 
     Candidate boundaries are placed on a uniform grid. Requested widths are
     used at each grid position and clipped at the upper frequency limit.
-    The complete requested range is always included as a candidate.
+    The complete requested range is deliberately excluded: pilot runs should
+    use bounded intervals rather than a potentially expensive broadband mesh.
     """
     if len(frequency_range_ghz) != 2:
         raise ValueError("frequency_range_ghz must contain two values.")
@@ -53,28 +54,22 @@ def generate_candidate_bands(
                 key = (round(start, 12), round(stop, 12))
                 unique[key] = FrequencyBand(start, stop, n_pts)
 
-    full_key = (round(fmin, 12), round(fmax, 12))
-    unique[full_key] = FrequencyBand(fmin, fmax, n_pts)
     candidates = sorted(unique.values(), key=lambda band: (
         band.fstart_ghz, band.fstop_ghz
     ))
 
     if len(candidates) > max_candidates:
-        # Evenly retain candidates from the ordered set, while preserving the
-        # complete-range candidate needed as a guaranteed coverage fallback.
+        # Evenly retain candidates from the ordered set. Keep the low- and
+        # high-frequency edge candidates represented without adding a
+        # full-range fallback.
         if max_candidates == 1:
-            selected = [unique[full_key]]
+            selected = [candidates[0]]
         else:
             indexes = {
                 round(index * (len(candidates) - 1) / (max_candidates - 1))
                 for index in range(max_candidates)
             }
             selected = [candidates[index] for index in sorted(indexes)]
-            if full_key not in {
-                (round(item.fstart_ghz, 12), round(item.fstop_ghz, 12))
-                for item in selected
-            }:
-                selected[-1] = unique[full_key]
         candidates = sorted(selected, key=lambda band: (
             band.fstart_ghz, band.fstop_ghz
         ))
@@ -95,14 +90,20 @@ def characterize_and_select_intervals(
     end_criteria_db: float = -10.0,
     max_timesteps: int = 50000,
     threads: int = 1,
+    max_pilot_mesh_cells: int | None = 2_000_000,
 ) -> dict[str, Any]:
     """Measure generated intervals and return a reusable complete interval plan.
 
-    The generated candidate set is bounded by max_candidates. The selected
-    sequence and its settings are saved alongside the measurement manifest.
+    The generated candidate set is bounded by max_candidates. Oversized
+    candidates are skipped before the FDTD solver starts. The selected
+    sequence, skipped candidates and settings are saved in the manifest.
     """
     if not math.isfinite(minimum_overlap_ghz) or minimum_overlap_ghz < 0:
         raise ValueError("minimum_overlap_ghz must be finite and non-negative.")
+    if (max_pilot_mesh_cells is not None
+            and (not isinstance(max_pilot_mesh_cells, int)
+                 or max_pilot_mesh_cells < 1)):
+        raise ValueError("max_pilot_mesh_cells must be a positive integer or None.")
     widths = tuple(float(width) for width in interval_widths_ghz)
     candidates = generate_candidate_bands(
         frequency_range_ghz,
@@ -118,6 +119,7 @@ def characterize_and_select_intervals(
         end_criteria_db=end_criteria_db,
         max_timesteps=max_timesteps,
         threads=threads,
+        max_pilot_mesh_cells=max_pilot_mesh_cells,
     )
     selected = select_fastest_band_sequence(
         result["records"],
@@ -146,6 +148,7 @@ def characterize_and_select_intervals(
         "boundary_step_ghz": float(boundary_step_ghz),
         "n_pts": int(n_pts),
         "max_candidates": int(max_candidates),
+        "max_pilot_mesh_cells": max_pilot_mesh_cells,
     }
     result["manifest"]["selection"] = selection
     Path(result["manifest_path"]).write_text(
@@ -174,6 +177,7 @@ def characterize_frequency_intervals(
     end_criteria_db: float = -10.0,
     max_timesteps: int = 50000,
     threads: int = 1,
+    max_pilot_mesh_cells: int | None = 2_000_000,
 ) -> dict[str, Any]:
     """Run short reference-design simulations for an explicit interval set.
 
@@ -202,13 +206,31 @@ def characterize_frequency_intervals(
     root.mkdir(parents=True, exist_ok=False)
     end_linear = 10.0 ** (float(end_criteria_db) / 10.0)
 
+    if (max_pilot_mesh_cells is not None
+            and (not isinstance(max_pilot_mesh_cells, int)
+                 or max_pilot_mesh_cells < 1)):
+        raise ValueError("max_pilot_mesh_cells must be a positive integer or None.")
+
     records: list[BandCost] = []
     details = []
+    skipped = []
     for index, band in enumerate(bands, start=1):
-        result = _run_band(
-            config, root / f"pilot_{index:03d}", band,
-            end_linear, int(max_timesteps), int(threads),
-        )
+        try:
+            result = _run_band(
+                config, root / f"pilot_{index:03d}", band,
+                end_linear, int(max_timesteps), int(threads),
+                max_mesh_cells=max_pilot_mesh_cells,
+            )
+        except PilotMeshLimitExceeded as exc:
+            skipped.append({
+                "fstart_ghz": band.fstart_ghz,
+                "fstop_ghz": band.fstop_ghz,
+                "n_pts": band.n_pts,
+                "mesh_cells": exc.cells,
+                "reason": str(exc),
+                "output_dir": str(root / f"pilot_{index:03d}"),
+            })
+            continue
         record = BandCost(
             band.fstart_ghz, band.fstop_ghz,
             result.runtime_seconds, result.cells, None,
@@ -219,6 +241,11 @@ def characterize_frequency_intervals(
             "n_pts": band.n_pts,
             "output_dir": result.output_dir,
         })
+    if not records:
+        raise RuntimeError(
+            "No pilot candidates were simulated successfully. "
+            "Increase max_pilot_mesh_cells or review the design mesh."
+        )
 
     manifest = {
         "config_path": str(config),
@@ -226,7 +253,9 @@ def characterize_frequency_intervals(
         "end_criteria_db": float(end_criteria_db),
         "max_timesteps": int(max_timesteps),
         "threads": int(threads),
+        "max_pilot_mesh_cells": max_pilot_mesh_cells,
         "intervals": details,
+        "skipped_intervals": skipped,
     }
     manifest_path = root / "characterization.json"
     manifest_path.write_text(json.dumps(manifest, indent=2), encoding="utf-8")
