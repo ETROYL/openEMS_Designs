@@ -362,6 +362,7 @@ def run_multiband_auto(
     pilot_end_criteria_db: float = -10.0,
     pilot_max_timesteps: int = 50000,
     pilot_threads: int = 1,
+    max_pilot_mesh_cells: int | None = 2_000_000,
     n_points: int | None = None,
     end_criteria_db: float | None = None,
     max_timesteps: int | None = None,
@@ -392,6 +393,10 @@ def run_multiband_auto(
         raise ValueError("smoothing_sigma_points cannot be negative.")
     if pilot_threads < 1 or pilot_max_timesteps < 1:
         raise ValueError("Pilot max_timesteps and threads must be positive.")
+    if (max_pilot_mesh_cells is not None
+            and (not isinstance(max_pilot_mesh_cells, int)
+                 or max_pilot_mesh_cells < 1)):
+        raise ValueError("max_pilot_mesh_cells must be a positive integer or None.")
     if not math.isfinite(pilot_end_criteria_db) or pilot_end_criteria_db >= 0:
         raise ValueError("pilot_end_criteria_db must be finite and negative.")
 
@@ -420,6 +425,7 @@ def run_multiband_auto(
         end_criteria_db=pilot_end_criteria_db,
         max_timesteps=pilot_max_timesteps,
         threads=pilot_threads,
+        max_pilot_mesh_cells=max_pilot_mesh_cells,
     )
     pilot_bands = plan["selected_bands"]
     if not pilot_bands:
@@ -472,6 +478,7 @@ def run_multiband_auto(
             "max_timesteps": int(pilot_max_timesteps),
             "threads": int(pilot_threads),
             "n_pts": int(pilot_n_pts),
+            "max_mesh_cells": max_pilot_mesh_cells,
         },
         "production_settings": {
             "end_criteria_db": production_db,
