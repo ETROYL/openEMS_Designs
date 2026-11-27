@@ -1,3 +1,4 @@
+import hashlib
 import json
 import tempfile
 import unittest
@@ -13,7 +14,7 @@ from multiband_fdtd.engine import (
 from multiband_fdtd.planner import BandCost, select_fastest_band_sequence
 from multiband_fdtd.characterization import (
     characterize_frequency_intervals, generate_candidate_bands,
-    characterize_and_select_intervals,
+    characterize_and_select_intervals, load_interval_plan,
 )
 
 
@@ -158,6 +159,59 @@ class IntegratedPlanningTests(unittest.TestCase):
             )
             characterize.assert_called_once()
 
+
+
+class FrozenIntervalPlanTests(unittest.TestCase):
+    def _write_plan(self, directory, intervals):
+        config = Path(directory) / "design.yaml"
+        config.write_text("variables: {}\\n", encoding="utf-8")
+        digest = hashlib.sha256(config.read_bytes()).hexdigest()
+        plan_path = Path(directory) / "characterization.json"
+        plan_path.write_text(json.dumps({
+            "plan_version": 1,
+            "config_sha256": digest,
+            "candidate_generation": {"n_pts": 41},
+            "selection": {
+                "frequency_range_ghz": [0.1, 1.0],
+                "selected_intervals": intervals,
+            },
+        }), encoding="utf-8")
+        return config, plan_path
+
+    def test_loads_frozen_boundaries_and_resamples_extraction_density(self):
+        with tempfile.TemporaryDirectory() as temp:
+            config, plan = self._write_plan(temp, [
+                {"fstart_ghz": 0.1, "fstop_ghz": 0.6},
+                {"fstart_ghz": 0.5, "fstop_ghz": 1.0},
+            ])
+            bands = load_interval_plan(plan, n_points=301, config_path=config)
+            self.assertEqual(
+                [(b.fstart_ghz, b.fstop_ghz) for b in bands],
+                [(0.1, 0.6), (0.5, 1.0)],
+            )
+            self.assertEqual(
+                [b.n_pts for b in bands],
+                [167, 167],
+            )
+
+    def test_rejects_plan_for_different_design(self):
+        with tempfile.TemporaryDirectory() as temp:
+            config, plan = self._write_plan(temp, [
+                {"fstart_ghz": 0.1, "fstop_ghz": 1.0},
+            ])
+            config.write_text("variables: {arm_length: {default: 0.05}}\\n",
+                              encoding="utf-8")
+            with self.assertRaisesRegex(ValueError, "different design"):
+                load_interval_plan(plan, config_path=config)
+
+    def test_rejects_frequency_gap(self):
+        with tempfile.TemporaryDirectory() as temp:
+            config, plan = self._write_plan(temp, [
+                {"fstart_ghz": 0.1, "fstop_ghz": 0.4},
+                {"fstart_ghz": 0.5, "fstop_ghz": 1.0},
+            ])
+            with self.assertRaisesRegex(ValueError, "gap"):
+                load_interval_plan(plan, config_path=config)
 
 class CharacterizationTests(unittest.TestCase):
     @patch("multiband_fdtd.characterization._run_band")
