@@ -94,5 +94,59 @@ class ParallelOptimizerSchedulingTests(unittest.TestCase):
                 self.assertEqual(len({item.indices for item in store.list_results()}), 4)
 
 
+    def test_stop_during_batch_finishes_active_candidates_and_prevents_next_batch(self):
+        with tempfile.TemporaryDirectory() as temp:
+            config = os.path.join(temp, "design.yaml")
+            with open(config, "w", encoding="utf-8") as stream:
+                stream.write("variables: {x: {start: 0, stop: 20, step: 1}}\\n")
+            space = DiscreteParameterSpace({"x": {"start": 0, "stop": 20, "step": 1}})
+            evaluator = CandidateEvaluator(
+                config, os.path.join(temp, "runs"), space,
+                simulation_runner=lambda *_args: {},
+                objective_function=lambda *_args, **_kwargs: 0.0,
+            )
+            database = os.path.join(temp, "history.sqlite")
+            with EvaluationStore(database) as store:
+                optimizer = DiscreteSurrogateOptimizer(
+                    space, evaluator, store, initial_samples=4, pool_size=16, seed=3,
+                )
+
+                def fake_worker(task):
+                    indices, evaluation_id = task
+                    return EvaluationResult(
+                        fingerprint=evaluator.fingerprint(indices),
+                        indices=indices,
+                        parameters=space.to_values(indices),
+                        status="ok",
+                        objective=float(indices[0] ** 2),
+                        evaluation_dir=os.path.join(temp, f"eval_{evaluation_id}"),
+                        elapsed_seconds=0.01,
+                        metrics={},
+                    )
+
+                cancellation = {"requested": False}
+
+                def request_stop_after_first_result(_result, _completed, _budget):
+                    cancellation["requested"] = True
+
+                _InlineProcessPool.instances.clear()
+                with (
+                    patch("optimizer.engine.ProcessPoolExecutor", _InlineProcessPool),
+                    patch("optimizer.engine.evaluate_fdtd_candidate", fake_worker),
+                ):
+                    summary = optimizer.run_parallel(
+                        4, workers=2, threads_per_worker=2,
+                        objective_name="minimize_s11_in_band",
+                        progress_callback=request_stop_after_first_result,
+                        stop_requested=lambda: cancellation["requested"],
+                    )
+
+                pool = _InlineProcessPool.instances[-1]
+                self.assertEqual(pool.submitted, 2)
+                self.assertEqual(len(summary.evaluations), 2)
+                self.assertEqual(store.count(), 2)
+                self.assertEqual(summary.stop_reason, "stop requested")
+
+
 if __name__ == "__main__":
     unittest.main()
