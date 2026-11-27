@@ -33,21 +33,22 @@ class MainWindow(QMainWindow):
         super().__init__()
         self.setWindowTitle("ETROYL | Electromagnetic Design & Optimization")
 
-        # Keep the application inside the usable desktop area. A fixed outer
-        # geometry prevents long status messages or changing tab contents from
-        # resizing the main window.
+        # Start inside the usable desktop area, while retaining normal window
+        # resizing/maximizing. Content is constrained inside its tab pages so
+        # status updates cannot force the outer window to grow.
         screen = self.screen() or QGuiApplication.primaryScreen()
         if screen is not None:
             available = screen.availableGeometry()
             window_width = min(1180, max(640, available.width() - 24))
             window_height = min(780, max(480, available.height() - 24))
-            self.setFixedSize(window_width, window_height)
+            self.setMinimumSize(min(640, window_width), min(480, window_height))
+            self.resize(window_width, window_height)
             self.move(
                 available.center().x() - window_width // 2,
                 available.center().y() - window_height // 2,
             )
         else:
-            self.setFixedSize(1180, 780)
+            self.resize(1180, 780)
 
         # Keep the brand asset package-relative so launch location does not matter.
         logo_path = Path(__file__).resolve().with_name("logo-mono.webp")
