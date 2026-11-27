@@ -194,7 +194,7 @@ def load_interval_plan(
     with path.open("r", encoding="utf-8") as stream:
         manifest = json.load(stream)
 
-    if manifest.get("plan_version") != 1:
+    if not isinstance(manifest, dict) or manifest.get("plan_version") != 1:
         raise ValueError("Unsupported or missing interval plan version.")
     selection = manifest.get("selection")
     if not isinstance(selection, dict):
@@ -226,7 +226,10 @@ def load_interval_plan(
     ):
         raise ValueError("n_points must be an integer of at least 2.")
 
-    pilot_points = manifest.get("candidate_generation", {}).get("n_pts", 41)
+    generation = manifest.get("candidate_generation")
+    if generation is not None and not isinstance(generation, dict):
+        raise ValueError("The interval plan has invalid candidate-generation settings.")
+    pilot_points = (generation or {}).get("n_pts", 41)
     if not isinstance(pilot_points, int) or pilot_points < 2:
         raise ValueError("The interval plan has invalid pilot sampling settings.")
     broadband_step = (
@@ -257,6 +260,7 @@ def load_interval_plan(
         if right.fstart_ghz > left.fstop_ghz + 1e-12:
             raise ValueError("The interval plan contains a frequency gap.")
     return bands
+
 
 def characterize_frequency_intervals(
     config_path: str | Path,
