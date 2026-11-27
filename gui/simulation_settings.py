@@ -108,7 +108,7 @@ def format_simulation_settings(yaml_text: str) -> str:
         )
     return (
         f"Frequency: {frequency_text} GHz    |    "
-        f"Frequency points: {simulation.get('n_pts', 301)}\\n"
+        f"Frequency points: {simulation.get('n_pts', 301)}\n"
         f"Energy decay: {decay_text}    |    "
         f"Maximum timesteps: {simulation.get('max_timesteps', 500000)}"
     )
