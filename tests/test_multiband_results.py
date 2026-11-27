@@ -2,11 +2,12 @@
 from __future__ import annotations
 
 import csv
+import json
 import tempfile
 import unittest
 from pathlib import Path
 
-from multiband_fdtd.results import analyze_broadband_csv, process_results
+from multiband_fdtd.results import analyze_broadband_csv, calculate_far_field, process_results
 
 
 class BroadbandResultsTests(unittest.TestCase):
@@ -75,6 +76,20 @@ class BroadbandResultsTests(unittest.TestCase):
             self.assertTrue((output_dir / "multiband_metrics.json").is_file())
             self.assertTrue((output_dir / "multiband_results.png").is_file())
             self.assertEqual(result["sample_count"], 6)
+
+    def test_far_field_analysis_rejects_runs_without_recorded_fields(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            simulation_dir = Path(tmp) / "simulation"
+            simulation_dir.mkdir()
+            (simulation_dir / "multiband_run.json").write_text(
+                json.dumps({"far_field_recorded": False}), encoding="utf-8"
+            )
+            with self.assertRaisesRegex(RuntimeError, "not recorded"):
+                calculate_far_field(
+                    simulation_dir / "unused.csv",
+                    simulation_dir,
+                    simulation_dir,
+                )
 
 
 if __name__ == "__main__":
