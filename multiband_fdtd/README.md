@@ -35,7 +35,14 @@ directory must not already exist.
         n_points=1201,
         threads=4,
         smoothing_sigma_points=0.0,
+        # Optional: use these values instead of YAML variable defaults.
+        active_vars={"arm_length": 0.042},
     )
+
+The optional `active_vars` mapping is applied when building every interval's
+geometry and again when extracting its port response. This allows candidate
+evaluations to use their own variable values while reusing one fixed interval
+plan. If omitted, the YAML configured default variable values are used.
 
 Profiles provide defaults for energy decay, timestep limit and reconstructed
 sample count. Explicit values override profile defaults. The dB energy-decay
