@@ -31,14 +31,19 @@ class IntervalPlanRunnerTests(unittest.TestCase):
             "manifest_path": str(self.plan_path),
             "selected_bands": self.bands,
         }
+        stop_requested = lambda: False
         with patch(
             "multiband_fdtd.characterize_and_select_intervals",
             return_value=prepared,
         ) as characterize:
             path, bands, created = _prepare_interval_plan(
-                self.config, self.run_dir, settings, (0.1, 1.0), 301
+                self.config, self.run_dir, settings, (0.1, 1.0), 301,
+                stop_requested=stop_requested,
             )
         characterize.assert_called_once()
+        self.assertIs(
+            characterize.call_args.kwargs["stop_requested"], stop_requested
+        )
         self.assertTrue(created)
         self.assertEqual(path, str(self.plan_path.resolve()))
         self.assertEqual(bands, self.bands)
