@@ -7,7 +7,7 @@ import os
 import time
 from dataclasses import asdict, dataclass
 from pathlib import Path
-from typing import Any, Iterable
+from typing import Any, Iterable, Mapping
 
 import numpy as np
 import yaml
@@ -81,7 +81,8 @@ def _count_mesh_cells(csx: Any) -> int | None:
 
 def _run_band(config_path: Path, output_dir: Path, band: FrequencyBand,
               end_criteria: float, max_timesteps: int, threads: int,
-              max_mesh_cells: int | None = None) -> BandResult:
+              max_mesh_cells: int | None = None,
+              active_vars: Mapping[str, Any] | None = None) -> BandResult:
     os.environ["OMP_NUM_THREADS"] = str(threads)
     from CSXCAD import ContinuousStructure
     from openEMS import openEMS
@@ -101,7 +102,10 @@ def _run_band(config_path: Path, output_dir: Path, band: FrequencyBand,
     fdtd.SetCSX(csx)
     fdtd.SetGaussExcite(f0, fc)
     fdtd.SetBoundaryCond(["PML_8"] * 6)
-    build_design(csx, fdtd, config_file=str(band_yaml), enable_nf2ff=False)
+    build_design(
+        csx, fdtd, config_file=str(band_yaml), active_vars=active_vars,
+        enable_nf2ff=False,
+    )
     cells = _count_mesh_cells(csx)
     if max_mesh_cells is not None:
         if cells is None:
@@ -133,7 +137,8 @@ def _run_band(config_path: Path, output_dir: Path, band: FrequencyBand,
     post_fdtd.SetCSX(post_csx)
     post_fdtd.SetGaussExcite(f0, fc)
     port, _ = build_design(
-        post_csx, post_fdtd, config_file=str(band_yaml), enable_nf2ff=False
+        post_csx, post_fdtd, config_file=str(band_yaml),
+        active_vars=active_vars, enable_nf2ff=False,
     )
     frequency_hz = np.linspace(fstart, fstop, band.n_pts)
     port.CalcPort(str(output_dir), frequency_hz)
@@ -254,6 +259,7 @@ def run_multiband(
     max_timesteps: int | None = None,
     threads: int = 1,
     smoothing_sigma_points: float = 0.0,
+    active_vars: Mapping[str, Any] | None = None,
 ) -> dict[str, Any]:
     """Run multi-band FDTD and return standard freq/S11/impedance arrays.
 
@@ -312,7 +318,7 @@ def run_multiband(
     for index, band in enumerate(normalized, start=1):
         results.append(_run_band(
             config, root / f"band_{index:02d}", band,
-            end_linear, max_ts, threads,
+            end_linear, max_ts, threads, active_vars=active_vars,
         ))
     combined = reconstruct_response(
         results, requested, sample_count,
