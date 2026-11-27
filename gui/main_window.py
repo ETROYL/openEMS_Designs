@@ -1638,7 +1638,7 @@ class MainWindow(QMainWindow):
             except (OSError, ValueError, TypeError):
                 far_field_available = False
         self.radiation_plot_label.setVisible(far_field_available)
-        self.results_plots_widget.setMinimumHeight(1020 if far_field_available else 520)
+        self.results_plots_widget.setMinimumHeight(1460 if far_field_available else 740)
         self._load_result_plot(self.s11_plot_label, output_dir / "multiband_results.png")
         radiation_path = output_dir / "radiation_plot.png"
         if far_field_available and radiation_path.is_file():
