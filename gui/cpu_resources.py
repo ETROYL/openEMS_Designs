@@ -5,6 +5,9 @@ import os
 from pathlib import Path
 
 
+RESERVED_LOGICAL_CPUS = 1
+
+
 def detect_cpu_resources() -> dict[str, int | str]:
     """Return CPU capacity visible to this process, respecting Linux affinity."""
     logical = len(os.sched_getaffinity(0)) if hasattr(os, "sched_getaffinity") else (os.cpu_count() or 1)
@@ -37,7 +40,7 @@ def detect_cpu_resources() -> dict[str, int | str]:
 
 
 def validate_allocation(workers: int, threads_per_worker: int) -> None:
-    """Reject allocations exceeding available physical or logical CPU capacity."""
+    """Reject allocations exceeding physical cores or logical CPUs after OS reserve."""
     resources = detect_cpu_resources()
     physical = int(resources["physical_cores"])
     logical = int(resources["logical_threads"])
@@ -54,8 +57,10 @@ def validate_allocation(workers: int, threads_per_worker: int) -> None:
             f"Threads per worker ({threads_per_worker}) exceed the available logical CPUs ({logical})."
         )
     total = workers * threads_per_worker
-    if total > logical:
+    usable_logical = max(0, logical - RESERVED_LOGICAL_CPUS)
+    if total > usable_logical:
         raise ValueError(
             f"Total allocation ({workers} × {threads_per_worker} = {total}) exceeds "
-            f"the available logical CPUs ({logical})."
+            f"the usable logical CPU budget ({usable_logical} of {logical}; "
+            f"{RESERVED_LOGICAL_CPUS} reserved for the operating system and background tasks)."
         )
