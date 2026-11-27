@@ -149,13 +149,12 @@ class CandidateEvaluator:
             )
         else:
             import yaml
-            from design import get_simulation_settings
+            from design import get_simulation_settings, load_config
             from multiband_fdtd import load_interval_plan, run_multiband
 
-            with open(config_file, "r", encoding="utf-8") as stream:
-                raw_config = yaml.safe_load(stream) or {}
+            resolved_config = load_config(config_file)
             settings = get_simulation_settings(
-                raw_config, "optimization",
+                resolved_config, "optimization",
                 overrides=(dict(evaluation_settings)
                            if evaluation_settings is not None else None),
             )
