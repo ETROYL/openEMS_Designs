@@ -28,6 +28,14 @@ class FrequencyBand:
             raise ValueError("Each band requires at least two frequency points.")
 
 
+class PilotMeshLimitExceeded(RuntimeError):
+    """Raised when a pilot interval is unsafe to simulate."""
+
+    def __init__(self, message: str, cells: int | None = None):
+        super().__init__(message)
+        self.cells = cells
+
+
 @dataclass
 class BandResult:
     band: FrequencyBand
@@ -72,7 +80,8 @@ def _count_mesh_cells(csx: Any) -> int | None:
 
 
 def _run_band(config_path: Path, output_dir: Path, band: FrequencyBand,
-              end_criteria: float, max_timesteps: int, threads: int) -> BandResult:
+              end_criteria: float, max_timesteps: int, threads: int,
+              max_mesh_cells: int | None = None) -> BandResult:
     os.environ["OMP_NUM_THREADS"] = str(threads)
     from CSXCAD import ContinuousStructure
     from openEMS import openEMS
@@ -94,6 +103,17 @@ def _run_band(config_path: Path, output_dir: Path, band: FrequencyBand,
     fdtd.SetBoundaryCond(["PML_8"] * 6)
     build_design(csx, fdtd, config_file=str(band_yaml), enable_nf2ff=False)
     cells = _count_mesh_cells(csx)
+    if max_mesh_cells is not None:
+        if cells is None:
+            raise PilotMeshLimitExceeded(
+                "Mesh cell count could not be determined; pilot skipped."
+            )
+        if cells > max_mesh_cells:
+            raise PilotMeshLimitExceeded(
+                f"Mesh contains {cells:,} cells, exceeding the "
+                f"{max_mesh_cells:,}-cell pilot limit.",
+                cells=cells,
+            )
     csx.Write2XML(str(output_dir / "geometry.xml"))
 
     started = time.perf_counter()
