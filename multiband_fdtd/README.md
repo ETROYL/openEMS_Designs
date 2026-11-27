@@ -96,6 +96,29 @@ selected intervals and total measured runtime. The selection settings and
 selected sequence are also stored in characterization.json. The selected
 intervals can be reused unchanged for subsequent evaluations in a run.
 
+The saved plan is versioned and records a SHA-256 fingerprint of its source
+YAML. Load it later without repeating pilot simulations:
+
+    from multiband_fdtd import load_interval_plan, run_multiband
+
+    fixed_bands = load_interval_plan(
+        "results/interval_characterization/characterization.json",
+        n_points=301,
+        config_path="design.yaml",
+    )
+    result = run_multiband(
+        config_path="design.yaml",
+        output_dir="results/candidate_001",
+        bands=fixed_bands,
+        profile="optimization",
+        active_vars={"arm_length": 0.042},
+    )
+
+The loader verifies complete frequency coverage without gaps and, when
+config_path is supplied, rejects plans prepared from different YAML content.
+The optional n_points argument adjusts per-interval extraction sampling to
+the requested broadband output spacing without changing interval boundaries.
+
 ## Automatic interval preparation and simulation
 
 The complete preparation and production sequence is also available through
