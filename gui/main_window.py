@@ -1637,8 +1637,15 @@ class MainWindow(QMainWindow):
                 far_field_available = False
         self.radiation_plot_label.setVisible(far_field_available)
         self._load_result_plot(self.s11_plot_label, output_dir / "multiband_results.png")
-        if far_field_available and (output_dir / "radiation_plot.png").is_file():
-            self._load_result_plot(self.radiation_plot_label, output_dir / "radiation_plot.png")
+        radiation_path = output_dir / "radiation_plot.png"
+        if far_field_available and radiation_path.is_file():
+            self._load_result_plot(self.radiation_plot_label, radiation_path)
+        else:
+            self._radiation_original_pixmap = QPixmap()
+            self.radiation_plot_label.setPixmap(QPixmap())
+            self.radiation_plot_label.setText(
+                "Far-field results are unavailable for this simulation."
+            )
         if not (output_dir / "multiband_results.png").is_file():
             self._load_result_plot(self.s11_plot_label, output_dir / "s11_plot.png")
 
