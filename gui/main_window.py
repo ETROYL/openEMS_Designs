@@ -490,9 +490,9 @@ class MainWindow(QMainWindow):
         heading = QLabel("Standalone FDTD simulation")
         heading.setStyleSheet("font-size: 20px; font-weight: 600;")
         description = QLabel(
-            "Run one openEMS simulation using the current YAML editor contents. "
-            "The run uses the simulation settings in the YAML, PML_8 boundaries and the "
-            "thread count configured by parallel.py. Each run is written to a new output folder."
+            "Run a standalone FDTD simulation using the current YAML editor contents. "
+            "Choose standard single-band execution or the accurate multi-band workflow. "
+            "Each run is written to a new output folder."
         )
         description.setWordWrap(True)
         self.simulation_multiband_checkbox = QCheckBox("Use multi-band simulation")
