@@ -961,11 +961,11 @@ class MainWindow(QMainWindow):
         self._optimization_pause_requested = True
         self.pause_optimization_button.setEnabled(False)
         self._set_optimization_status(
-            "PAUSE REQUESTED — waiting for the current FDTD evaluation to finish",
+            "PAUSE REQUESTED — waiting for active FDTD evaluations to finish",
             "running",
         )
         self.optimization_log.appendPlainText(
-            "Pause requested. The current FDTD evaluation will finish, then the run will be saved for resumption."
+            "Pause requested. All FDTD evaluations already in progress will finish; no new candidates will be launched. The run will remain available to Resume."
         )
 
     def continue_optimization(self) -> None:
@@ -1075,11 +1075,11 @@ class MainWindow(QMainWindow):
         self.pause_optimization_button.setEnabled(False)
         self.stop_optimization_button.setEnabled(False)
         self._set_optimization_status(
-            "STOP REQUESTED — waiting for the current FDTD evaluation to finish",
+            "STOP REQUESTED — waiting for active FDTD evaluations to finish",
             "running",
         )
         self.optimization_log.appendPlainText(
-            "Stop requested. The current FDTD evaluation will finish; this run will not be resumable from this GUI session."
+            "Stop requested. All FDTD evaluations already in progress will finish; no new candidates will be launched. Completed results are retained and can be continued later with an additional evaluation budget."
         )
 
     def kill_optimization(self) -> None:
