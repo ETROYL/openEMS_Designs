@@ -63,7 +63,7 @@ def run_multiband_simulation(config_path: Path, output_parent: Path, design_name
     impedance_axis.grid(True, alpha=0.3)
     impedance_axis.legend()
     figure.tight_layout()
-    figure.savefig(output_dir / "s11_plot.png", dpi=180)
+    figure.savefig(Path(result["output_dir"]) / "s11_plot.png", dpi=180)
     plt.close(figure)
 
     production_dir = output_dir / "simulation"
