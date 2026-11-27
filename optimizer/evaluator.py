@@ -8,6 +8,7 @@ from __future__ import annotations
 from dataclasses import asdict, dataclass
 import hashlib
 import json
+import math
 import os
 import re
 import time
@@ -97,6 +98,8 @@ class CandidateEvaluator:
         simulation_runner: SimulationRunner,
         objective_function: ObjectiveFunction,
         failed_penalty: float = 1e6,
+        interval_plan_path: str | None = None,
+        evaluation_settings: Mapping[str, Any] | None = None,
     ) -> None:
         self.config_file = os.path.abspath(config_file)
         self.output_dir = os.path.abspath(output_dir)
@@ -104,6 +107,18 @@ class CandidateEvaluator:
         self.simulation_runner = simulation_runner
         self.objective_function = objective_function
         self.failed_penalty = float(failed_penalty)
+        self.interval_plan_path = (
+            os.path.abspath(interval_plan_path) if interval_plan_path else None
+        )
+        self.evaluation_settings = (
+            None if evaluation_settings is None else dict(evaluation_settings)
+        )
+        self.interval_plan_sha256 = None
+        if self.interval_plan_path:
+            if not os.path.isfile(self.interval_plan_path):
+                raise FileNotFoundError(self.interval_plan_path)
+            with open(self.interval_plan_path, "rb") as stream:
+                self.interval_plan_sha256 = hashlib.sha256(stream.read()).hexdigest()
         if not os.path.isfile(self.config_file):
             raise FileNotFoundError(self.config_file)
         if not callable(simulation_runner):
@@ -121,13 +136,59 @@ class CandidateEvaluator:
         objective_name: str = "multi_objective_combined",
         objective_weights: Mapping[str, float] | None = None,
         evaluation_settings: Mapping[str, Any] | None = None,
+        interval_plan_path: str | None = None,
     ) -> "CandidateEvaluator":
         """Bind to the current simulation pipeline and a selectable objective.
 
         Imports are lazy so unit tests and parameter-space tooling do not need
         the openEMS Python bindings installed.
         """
-        from optimization import run_simulation_instance
+        if interval_plan_path is None:
+            from optimization import run_simulation_instance
+            simulation_runner = lambda config, params, directory: run_simulation_instance(
+                config, params, directory,
+                evaluation_settings=dict(evaluation_settings or {}),
+            )
+        else:
+            import yaml
+            from design import get_simulation_settings
+            from multiband_fdtd import load_interval_plan, run_multiband
+
+            with open(config_file, "r", encoding="utf-8") as stream:
+                raw_config = yaml.safe_load(stream) or {}
+            settings = get_simulation_settings(
+                raw_config, "optimization",
+                overrides=(dict(evaluation_settings)
+                           if evaluation_settings is not None else None),
+            )
+            fstart = float(settings["fstart"])
+            fstop = float(settings["fstop"])
+            n_points = int(settings.get("n_pts", 301))
+            end_criteria = float(settings.get("end_criteria", 1e-2))
+            end_criteria_db = float(settings.get(
+                "end_criteria_db", 10.0 * math.log10(end_criteria)
+            ))
+            max_timesteps = int(settings.get("max_timesteps", 40000))
+            fixed_bands = load_interval_plan(
+                interval_plan_path,
+                n_points=n_points,
+                config_path=config_file,
+            )
+
+            def simulation_runner(config, params, directory):
+                return run_multiband(
+                    config_path=config,
+                    output_dir=directory,
+                    bands=fixed_bands,
+                    profile="optimization",
+                    frequency_range_ghz=(fstart, fstop),
+                    n_points=n_points,
+                    end_criteria_db=end_criteria_db,
+                    max_timesteps=max_timesteps,
+                    threads=max(1, int(os.environ.get("EM_THREADS", "1"))),
+                    active_vars=params,
+                )
+
         from objectives import (
             maximize_bandwidth_in_band,
             maximize_impedance_smoothness,
@@ -160,11 +221,11 @@ class CandidateEvaluator:
             config_file=config_file,
             output_dir=output_dir,
             parameter_space=parameter_space,
-            simulation_runner=lambda config, params, directory: run_simulation_instance(
-                config, params, directory, evaluation_settings=dict(evaluation_settings or {})
-            ),
+            simulation_runner=simulation_runner,
             objective_function=objective_function,
             failed_penalty=failed_penalty,
+            interval_plan_path=interval_plan_path,
+            evaluation_settings=evaluation_settings,
         )
 
     def fingerprint(self, indices: Sequence[int]) -> str:
@@ -177,6 +238,8 @@ class CandidateEvaluator:
             "config_sha256": config_digest,
             "indices": list(index_tuple),
             "parameters": _stable_value(parameters),
+            "evaluation_settings": _stable_value(self.evaluation_settings),
+            "interval_plan_sha256": self.interval_plan_sha256,
         }
         return hashlib.sha256(
             json.dumps(identity, sort_keys=True, separators=(",", ":")).encode("utf-8")
