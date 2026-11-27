@@ -66,12 +66,13 @@ def run_multiband_simulation(config_path: Path, output_parent: Path, design_name
     figure.savefig(output_dir / "s11_plot.png", dpi=180)
     plt.close(figure)
 
-    print(f"Output directory: {output_dir}", flush=True)
-    print(f"SIMULATION_OUTPUT_DIR={output_dir.resolve()}", flush=True)
+    production_dir = output_dir / "simulation"
+    print(f"Output directory: {production_dir}", flush=True)
+    print(f"SIMULATION_OUTPUT_DIR={production_dir.resolve()}", flush=True)
     print(f"SIMULATION_CONFIG={snapshot_path.resolve()}", flush=True)
     print(f"Selected intervals: {len(result['bands'])}", flush=True)
     print(f"Total production FDTD runtime: {result['total_runtime_seconds']:.2f} s", flush=True)
-    print(f"Broadband response: {output_dir / 'broadband_response.csv'}", flush=True)
+    print(f"Broadband response: {production_dir / 'broadband_response.csv'}", flush=True)
     print("Far-field recording is enabled for the production bands; full analysis is available in Results.", flush=True)
     print("Multi-band FDTD simulation completed successfully.", flush=True)
     return output_dir
