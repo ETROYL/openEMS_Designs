@@ -539,13 +539,15 @@ class MainWindow(QMainWindow):
         heading = QLabel("Simulation results")
         heading.setStyleSheet("font-size: 20px; font-weight: 600;")
         description = QLabel(
-            "Post-process the most recent successful FDTD run using the design snapshot "
-            "saved with that simulation. The existing postprocess.py computes port response, "
-            "impedance, VSWR and NF2FF radiation results."
+            "Review the broadband response, antenna matching metrics and radiation results "
+            "available for the most recent successful simulation."
         )
         description.setWordWrap(True)
         self.results_status = QLabel("Run an FDTD simulation first.")
         self.results_status.setWordWrap(True)
+        self.results_summary = QLabel("Performance metrics will appear after post-processing.")
+        self.results_summary.setWordWrap(True)
+        self.results_summary.setTextInteractionFlags(Qt.TextInteractionFlag.TextSelectableByMouse)
         self.run_postprocess_button = QPushButton("Run post-processing")
         self.run_postprocess_button.setEnabled(False)
         self.run_postprocess_button.clicked.connect(self.start_postprocessing)
@@ -576,6 +578,7 @@ class MainWindow(QMainWindow):
         layout.addWidget(heading)
         layout.addWidget(description)
         layout.addWidget(self.results_status)
+        layout.addWidget(self.results_summary)
         layout.addWidget(self.run_postprocess_button)
         layout.addWidget(self.results_log)
         layout.addWidget(scroll, 1)
@@ -1443,6 +1446,8 @@ class MainWindow(QMainWindow):
         self.last_simulation_multiband = self.simulation_multiband_checkbox.isChecked()
         self.run_postprocess_button.setEnabled(False)
         self.results_status.setText("Waiting for the FDTD simulation to complete successfully.")
+        self.results_summary.setText("Performance metrics will appear after post-processing.")
+        self.radiation_plot_label.setVisible(True)
         self._s11_original_pixmap = QPixmap()
         self._radiation_original_pixmap = QPixmap()
         self.s11_plot_label.setText("S-parameter / impedance plot will appear here.")
@@ -1532,25 +1537,25 @@ class MainWindow(QMainWindow):
         if exit_code == 0:
             if self.last_simulation_dir and self.last_simulation_config and self.last_simulation_dir.is_dir() and self.last_simulation_config.is_file():
                 if self.last_simulation_multiband:
-                    self.run_postprocess_button.setEnabled(False)
+                    response_csv = self.last_simulation_dir / "broadband_response.csv"
+                    self.run_postprocess_button.setEnabled(response_csv.is_file())
                     self.run_postprocess_button.setToolTip(
-                        "The reconstructed multi-band response is already available; "
-                        "NF2FF processing is not supported for this workflow."
+                        "Analyze the reconstructed broadband response. Far-field/NF2FF "
+                        "processing is not available for this simulation type."
                     )
+                    self.radiation_plot_label.setVisible(False)
                     self._load_result_plot(
                         self.s11_plot_label, self.last_simulation_dir / "s11_plot.png"
                     )
-                    self.radiation_plot_label.setPixmap(QPixmap())
-                    self.radiation_plot_label.setText(
-                        "Far-field / NF2FF results are not available for multi-band simulations."
-                    )
                     self.results_status.setText(
-                        "Multi-band broadband response is ready. S11 and input impedance "
-                        f"are plotted; CSV and NPZ data are saved in: {self.last_simulation_dir}"
+                        "Broadband response is ready. Run post-processing to calculate "
+                        "matching bandwidth, resonances, VSWR and impedance metrics. "
+                        f"Numerical response data: {self.last_simulation_dir}"
                     )
                 else:
                     self.run_postprocess_button.setEnabled(True)
                     self.run_postprocess_button.setToolTip("")
+                    self.radiation_plot_label.setVisible(True)
                     self.results_status.setText(f"Ready to post-process: {self.last_simulation_dir}")
                 self._set_simulation_status("SIMULATION COMPLETED SUCCESSFULLY", "success")
                 self.statusBar().showMessage("FDTD simulation completed")
@@ -1579,15 +1584,26 @@ class MainWindow(QMainWindow):
         self.run_postprocess_button.setEnabled(False)
         self.run_simulation_button.setEnabled(False)
         self.results_status.setText(f"Processing: {self.last_simulation_dir}")
-        self._postprocess_process.start(
-            sys.executable,
-            [
+        if self.last_simulation_multiband:
+            response_csv = self.last_simulation_dir / "broadband_response.csv"
+            if not response_csv.is_file():
+                self.results_status.setText("Broadband response CSV is missing; post-processing cannot continue.")
+                self.run_postprocess_button.setEnabled(False)
+                self.run_simulation_button.setEnabled(True)
+                return
+            process_args = [
+                "-m", "multiband_fdtd.results",
+                "--csv", str(response_csv),
+                "--output-dir", str(self.last_simulation_dir),
+            ]
+        else:
+            process_args = [
                 "-m", "postprocess",
                 "--config", str(self.last_simulation_config),
                 "--sim-dir", str(self.last_simulation_dir),
                 "--no-show",
-            ],
-        )
+            ]
+        self._postprocess_process.start(sys.executable, process_args)
 
     def _postprocess_stdout(self) -> None:
         data = bytes(self._postprocess_process.readAllStandardOutput()).decode(errors="replace")
@@ -1601,18 +1617,57 @@ class MainWindow(QMainWindow):
 
     def _postprocess_finished(self, exit_code: int, _exit_status) -> None:
         self.run_simulation_button.setEnabled(True)
-        self.run_postprocess_button.setEnabled(
-            bool(self.last_simulation_dir and self.last_simulation_config)
-        )
+        can_process = bool(self.last_simulation_dir and self.last_simulation_config)
+        if self.last_simulation_multiband and self.last_simulation_dir:
+            can_process = (self.last_simulation_dir / "broadband_response.csv").is_file()
+        self.run_postprocess_button.setEnabled(can_process)
         if exit_code == 0 and self.last_simulation_dir:
-            self._load_result_plot(self.s11_plot_label, self.last_simulation_dir / "s11_plot.png")
-            self._load_result_plot(self.radiation_plot_label, self.last_simulation_dir / "radiation_plot.png")
-            self.results_status.setText(f"Post-processing complete. Results saved in: {self.last_simulation_dir}")
+            if self.last_simulation_multiband:
+                self._load_result_plot(
+                    self.s11_plot_label, self.last_simulation_dir / "multiband_results.png"
+                )
+                self._show_multiband_metrics(self.last_simulation_dir / "multiband_metrics.json")
+                self.radiation_plot_label.setVisible(False)
+                self.results_status.setText(
+                    f"Broadband post-processing complete. Report files saved in: {self.last_simulation_dir}"
+                )
+            else:
+                self._load_result_plot(self.s11_plot_label, self.last_simulation_dir / "s11_plot.png")
+                self._load_result_plot(self.radiation_plot_label, self.last_simulation_dir / "radiation_plot.png")
+                self.results_status.setText(f"Post-processing complete. Results saved in: {self.last_simulation_dir}")
             self.statusBar().showMessage("Post-processing completed")
         else:
             self.results_status.setText("Post-processing failed. See the log for details.")
             self.results_log.appendPlainText(f"Post-processing process exited with code {exit_code}.")
             self.statusBar().showMessage("Post-processing failed")
+
+    def _show_multiband_metrics(self, metrics_path: Path) -> None:
+        try:
+            metrics = json.loads(metrics_path.read_text(encoding="utf-8"))
+            z = metrics["impedance_at_minimum_s11_ohm"]
+            bands10 = metrics["bands_below_minus_10_db"]
+            bands20 = metrics["bands_below_minus_20_db"]
+            resonances = metrics["resonances"]
+            lines = [
+                f"Frequency range: {metrics['frequency_start_ghz']:.4g}–{metrics['frequency_stop_ghz']:.4g} GHz "
+                f"({metrics['sample_count']} points)",
+                f"Minimum S11: {metrics['minimum_s11_db']:.2f} dB at "
+                f"{metrics['minimum_s11_frequency_ghz']:.5g} GHz",
+                f"VSWR at minimum S11: {metrics['vswr_at_minimum_s11']:.3f}",
+                f"Input impedance there: {z['real']:.2f} {'+' if z['imag'] >= 0 else '−'} "
+                f"{abs(z['imag']):.2f}j Ω",
+                f"Total bandwidth ≤ −10 dB: {metrics['total_bandwidth_below_minus_10_db_ghz']:.4g} GHz "
+                f"({len(bands10)} band(s))",
+                f"Total bandwidth ≤ −20 dB: {metrics['total_bandwidth_below_minus_20_db_ghz']:.4g} GHz "
+                f"({len(bands20)} band(s))",
+                "Resonances: " + (
+                    ", ".join(f"{r['frequency_ghz']:.4g} GHz ({r['s11_db']:.1f} dB)" for r in resonances[:5])
+                    if resonances else "No distinct local minima detected"
+                ),
+            ]
+            self.results_summary.setText("\\n".join(lines))
+        except (OSError, ValueError, KeyError, TypeError) as exc:
+            self.results_summary.setText(f"Could not load broadband performance metrics: {exc}")
 
     def _load_result_plot(self, label: QLabel, image_path: Path) -> None:
         pixmap = QPixmap(str(image_path))
@@ -1635,7 +1690,7 @@ class MainWindow(QMainWindow):
             if original.isNull():
                 continue
             available_width = max(1, label.width() - 24)
-            available_height = max(1, self.height() - 260)
+            available_height = max(1, label.height() - 24)
             label.setPixmap(original.scaled(
                 available_width, available_height,
                 Qt.AspectRatioMode.KeepAspectRatio,
