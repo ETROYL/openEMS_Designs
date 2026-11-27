@@ -122,3 +122,18 @@ production sampling is recalculated from the requested broadband point count.
 The production profile controls its own convergence and sampling defaults;
 explicit production overrides can be provided through `end_criteria_db`,
 `max_timesteps` and `n_points`.
+
+
+### Pilot mesh safety
+
+Automatic interval preparation excludes a full-range candidate by default.
+Pilot candidates are checked after mesh construction and before the FDTD
+solver starts. Candidates exceeding the default **2,000,000-cell** limit are
+skipped and recorded in `characterization.json`; candidates whose mesh size
+cannot be determined are also skipped while the limit is enabled.
+
+The limit can be adjusted through `max_pilot_mesh_cells` in
+`run_multiband_auto()`, `characterize_and_select_intervals()`, or
+`characterize_frequency_intervals()`. Set it to `None` only to disable the
+guard explicitly. This limit applies to pilot characterization, not production
+simulations.
