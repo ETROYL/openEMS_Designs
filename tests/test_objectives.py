@@ -32,6 +32,13 @@ class ObjectiveFunctionTests(unittest.TestCase):
             with self.subTest(objective=function.__name__):
                 self.assertTrue(np.isfinite(function(self.results)))
 
+    def test_impedance_smoothness_preserves_fractional_precision(self):
+        expected = float(np.std(np.abs(self.results["z_in"])))
+        actual = maximize_impedance_smoothness(self.results)
+
+        self.assertAlmostEqual(actual, expected, places=12)
+        self.assertNotEqual(actual, float(int(actual)))
+
     def test_combined_objective_default_weights_preserve_existing_formula(self):
         expected = (
             minimize_s11_in_band(self.results)
