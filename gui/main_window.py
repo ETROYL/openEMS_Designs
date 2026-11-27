@@ -1400,7 +1400,7 @@ class MainWindow(QMainWindow):
             previous = self._last_valid_simulation_settings_text
             if previous:
                 self.simulation_settings_label.setText(
-                    "YAML is temporarily invalid — showing the last valid settings:\\n"
+                    "YAML is temporarily invalid — showing the last valid settings:\n"
                     + previous
                 )
             else:
