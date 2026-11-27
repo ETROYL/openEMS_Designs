@@ -148,7 +148,6 @@ class CandidateEvaluator:
                 evaluation_settings=dict(evaluation_settings or {}),
             )
         else:
-            import yaml
             from design import get_simulation_settings, load_config
             from multiband_fdtd import load_interval_plan, run_multiband
 
