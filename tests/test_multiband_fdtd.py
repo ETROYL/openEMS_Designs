@@ -271,6 +271,27 @@ class CharacterizationTests(unittest.TestCase):
             self.assertIn("exceeding", saved["skipped_intervals"][0]["reason"])
             self.assertEqual(run_band.call_count, 2)
 
+    @patch("multiband_fdtd.characterization._run_band")
+    def test_honors_stop_request_between_pilot_runs(self, run_band):
+        class FakeResult:
+            runtime_seconds = 1.0
+            cells = 1000
+            output_dir = "pilot_001"
+
+        run_band.return_value = FakeResult()
+        requests = iter((False, True))
+        with tempfile.TemporaryDirectory() as temp:
+            config = Path(temp) / "design.yaml"
+            config.write_text("variables: {}\\n", encoding="utf-8")
+            with self.assertRaisesRegex(InterruptedError, "interrupted"):
+                characterize_frequency_intervals(
+                    config,
+                    Path(temp) / "measurements",
+                    [FrequencyBand(0.1, 0.6, 41), FrequencyBand(0.5, 1.0, 41)],
+                    stop_requested=lambda: next(requests),
+                )
+        self.assertEqual(run_band.call_count, 1)
+
     def test_rejects_empty_candidate_list(self):
         with tempfile.TemporaryDirectory() as temp:
             config = Path(temp) / "design.yaml"
