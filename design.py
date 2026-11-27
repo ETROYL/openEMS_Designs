@@ -22,21 +22,42 @@ def evaluate_value(val, var_dict):
     return val
 
 def get_simulation_settings(cfg, profile="simulation", overrides=None):
-    """Return solver/frequency settings; GUI overrides never modify the YAML."""
+    """Return independent solver settings for standalone or optimization runs."""
     if profile not in ("simulation", "optimization"):
         raise ValueError("profile must be 'simulation' or 'optimization'")
-    settings = dict(cfg.get('simulation') or {})
+
+    settings = dict(cfg.get("simulation") or {})
+    evaluation = {}
+    if profile == "optimization":
+        optimization = cfg.get("optimization") or {}
+        evaluation = optimization.get("evaluation") or {}
+        if not isinstance(evaluation, dict):
+            raise ValueError("optimization.evaluation settings must be a mapping")
+        settings.update(evaluation)
+
     if overrides is not None:
         if not isinstance(overrides, dict):
             raise ValueError("simulation setting overrides must be a mapping")
         settings.update(overrides)
-    # openEMS EndCriteria is a linear energy ratio; the GUI/YAML dB value
-    # is converted here so both workflows use the same explicit convention.
-    if "end_criteria_db" in settings:
+
+    # Preserve the YAML fallback exactly when no optimization-specific
+    # settings are supplied. Otherwise convert dB unless an explicit
+    # legacy linear EndCriteria was provided by the evaluation/GUI layer.
+    has_optimization_settings = profile != "optimization" or bool(evaluation)
+    explicit_linear_override = (
+        "end_criteria" in evaluation or
+        (overrides is not None and "end_criteria" in overrides)
+    )
+    if (
+        has_optimization_settings
+        and "end_criteria_db" in settings
+        and not explicit_linear_override
+    ):
         decay_db = float(settings["end_criteria_db"])
         if not math.isfinite(decay_db) or decay_db >= 0:
             raise ValueError("end_criteria_db must be a finite negative dB value")
         settings["end_criteria"] = 10.0 ** (decay_db / 10.0)
+
     return settings
 
 
