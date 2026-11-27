@@ -439,6 +439,10 @@ def run_multiband_auto(
             else Path.home() / ".cache" / "etroyl" / "openems" / "interval-plans"
         ),
     )
+    if plan.get("cache_hit"):
+        print("Reusing a compatible interval plan from the local cache.", flush=True)
+    else:
+        print("No compatible cached interval plan; preparing intervals.", flush=True)
     pilot_bands = plan["selected_bands"]
     if not pilot_bands:
         raise RuntimeError("Interval preparation returned an empty selection.")
