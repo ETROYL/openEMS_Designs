@@ -185,9 +185,11 @@ def main() -> int:
         else:
             print(f"Using saved interval plan: {interval_plan_path}", flush=True)
         if pause_file.exists() and not stop_file.exists():
+            print("Interval plan is saved; resume will reuse it.", flush=True)
             print("OPTIMIZATION_PAUSED=1", flush=True)
             return 0
         if stop_file.exists():
+            print("Interval plan is saved; no candidate evaluations were started.", flush=True)
             print("OPTIMIZATION_STOPPED=1", flush=True)
             return 0
 
