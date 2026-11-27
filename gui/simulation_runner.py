@@ -92,13 +92,7 @@ def run_simulation(config_path: Path, output_parent: Path, design_name: str) -> 
     if max_timesteps <= 0:
         raise ValueError("simulation.max_timesteps must be positive")
 
-    output_parent.mkdir(parents=True, exist_ok=True)
-    safe_name = Path(design_name).name or "design"
-    output_dir = output_parent / f"{safe_name}_fdtd"
-    suffix = 1
-    while output_dir.exists():
-        output_dir = output_parent / f"{safe_name}_fdtd_{suffix:02d}"
-        suffix += 1
+    output_dir = _unique_output_dir(output_parent, design_name)
     output_dir.mkdir()
     snapshot_path = output_dir / "design.yaml"
     snapshot_path.write_text(config_path.read_text(encoding="utf-8"), encoding="utf-8")
