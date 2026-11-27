@@ -1608,16 +1608,10 @@ class MainWindow(QMainWindow):
                 "The selected folder does not contain broadband_response.csv."
             )
             return
-        if not config_snapshot.is_file():
-            QMessageBox.warning(
-                self, "Design snapshot not found",
-                "The selected folder contains broadband_response.csv but no design.yaml "
-                "snapshot. Select the simulation output folder, not its parent."
-            )
-            return
-
+        # Broadband analysis is driven by the CSV and does not require the
+        # original YAML snapshot. Keep the snapshot when one is available.
         self.last_simulation_dir = output_dir
-        self.last_simulation_config = config_snapshot
+        self.last_simulation_config = config_snapshot if config_snapshot.is_file() else None
         self.last_simulation_multiband = True
         self.run_postprocess_button.setEnabled(
             self._postprocess_process.state() == QProcess.ProcessState.NotRunning
@@ -1651,11 +1645,21 @@ class MainWindow(QMainWindow):
         if self._postprocess_process.state() != QProcess.ProcessState.NotRunning:
             QMessageBox.information(self, "Post-processing", "Post-processing is already running.")
             return
-        if not self.last_simulation_dir or not self.last_simulation_config:
-            QMessageBox.warning(self, "Post-processing", "Run a successful FDTD simulation first.")
+        if not self.last_simulation_dir or not self.last_simulation_dir.is_dir():
+            QMessageBox.warning(self, "Post-processing", "Open an existing results folder or run an FDTD simulation first.")
             return
-        if not self.last_simulation_dir.is_dir() or not self.last_simulation_config.is_file():
-            QMessageBox.warning(self, "Post-processing", "The saved simulation output or design snapshot is missing.")
+        if self.last_simulation_multiband:
+            if not (self.last_simulation_dir / "broadband_response.csv").is_file():
+                QMessageBox.warning(
+                    self, "Post-processing",
+                    "The selected results folder no longer contains broadband_response.csv."
+                )
+                return
+        elif not self.last_simulation_config or not self.last_simulation_config.is_file():
+            QMessageBox.warning(
+                self, "Post-processing",
+                "The single-band design snapshot is missing; select a valid simulation output."
+            )
             return
 
         self.results_log.clear()
@@ -1696,7 +1700,10 @@ class MainWindow(QMainWindow):
 
     def _postprocess_finished(self, exit_code: int, _exit_status) -> None:
         self.run_simulation_button.setEnabled(True)
-        can_process = bool(self.last_simulation_dir and self.last_simulation_config)
+        can_process = bool(
+            self.last_simulation_dir and self.last_simulation_dir.is_dir()
+            and self.last_simulation_config and self.last_simulation_config.is_file()
+        )
         if self.last_simulation_multiband and self.last_simulation_dir:
             can_process = (self.last_simulation_dir / "broadband_response.csv").is_file()
         self.run_postprocess_button.setEnabled(can_process)
