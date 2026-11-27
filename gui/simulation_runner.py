@@ -47,6 +47,7 @@ def run_multiband_simulation(config_path: Path, output_parent: Path, design_name
         frequency_range_ghz=(fstart, fstop),
         profile="accurate",
         threads=NUM_THREADS,
+        record_far_field=True,
     )
     snapshot_path.write_text(config_path.read_text(encoding="utf-8"), encoding="utf-8")
 
@@ -71,7 +72,7 @@ def run_multiband_simulation(config_path: Path, output_parent: Path, design_name
     print(f"Selected intervals: {len(result['bands'])}", flush=True)
     print(f"Total production FDTD runtime: {result['total_runtime_seconds']:.2f} s", flush=True)
     print(f"Broadband response: {output_dir / 'broadband_response.csv'}", flush=True)
-    print("Far-field/NF2FF post-processing is not available for the reconstructed multi-band response.", flush=True)
+    print("Far-field recording is enabled for the production bands; full analysis is available in Results.", flush=True)
     print("Multi-band FDTD simulation completed successfully.", flush=True)
     return output_dir
 
