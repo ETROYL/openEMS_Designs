@@ -18,11 +18,11 @@ from gui.cpu_resources import detect_cpu_resources, validate_allocation
 from matplotlib.backends.backend_qtagg import FigureCanvasQTAgg as FigureCanvas
 from matplotlib.figure import Figure
 from PySide6.QtCore import Qt, QProcess
-from PySide6.QtGui import QIcon, QPixmap
+from PySide6.QtGui import QGuiApplication, QIcon, QPixmap
 from PySide6.QtWidgets import (
     QCheckBox, QComboBox, QDoubleSpinBox, QFileDialog, QFormLayout, QGroupBox, QHBoxLayout, QLabel, QMainWindow,
     QMessageBox, QPlainTextEdit, QProgressBar, QPushButton, QRadioButton, QScrollArea,
-    QSpinBox, QTabWidget, QToolBar, QVBoxLayout, QWidget,
+    QSpinBox, QSizePolicy, QTabWidget, QToolBar, QVBoxLayout, QWidget,
 )
 
 
@@ -32,7 +32,22 @@ class MainWindow(QMainWindow):
     def __init__(self) -> None:
         super().__init__()
         self.setWindowTitle("ETROYL | Electromagnetic Design & Optimization")
-        self.resize(1180, 780)
+
+        # Keep the application inside the usable desktop area. A fixed outer
+        # geometry prevents long status messages or changing tab contents from
+        # resizing the main window.
+        screen = self.screen() or QGuiApplication.primaryScreen()
+        if screen is not None:
+            available = screen.availableGeometry()
+            window_width = min(1180, max(640, available.width() - 24))
+            window_height = min(780, max(480, available.height() - 24))
+            self.setFixedSize(window_width, window_height)
+            self.move(
+                available.center().x() - window_width // 2,
+                available.center().y() - window_height // 2,
+            )
+        else:
+            self.setFixedSize(1180, 780)
 
         # Keep the brand asset package-relative so launch location does not matter.
         logo_path = Path(__file__).resolve().with_name("logo-mono.webp")
@@ -255,10 +270,17 @@ class MainWindow(QMainWindow):
         self.optimization_allocation_status = QLabel("Default allocation: 4 workers × 2 threads per worker")
         # Keep these read-only diagnostics on compact single lines; wrapping
         # made their text clip vertically and unnecessarily increased the panel.
-        self.optimization_cpu_capacity.setWordWrap(False)
-        self.optimization_allocation_status.setWordWrap(False)
-        self.optimization_cpu_capacity.setMinimumHeight(22)
-        self.optimization_allocation_status.setMinimumHeight(22)
+        self.optimization_cpu_capacity.setWordWrap(True)
+        self.optimization_allocation_status.setWordWrap(True)
+        for diagnostic_label in (
+            self.optimization_cpu_capacity,
+            self.optimization_allocation_status,
+        ):
+            diagnostic_label.setMinimumHeight(22)
+            diagnostic_label.setMaximumWidth(360)
+            diagnostic_label.setSizePolicy(
+                QSizePolicy.Policy.Ignored, QSizePolicy.Policy.Preferred
+            )
 
         # Five editable controls on the right, followed by read-only validation details.
         right_settings.addRow("Candidate pool size", self.optimization_pool_size)
@@ -416,7 +438,15 @@ class MainWindow(QMainWindow):
         layout.addWidget(self.optimization_progress)
         layout.addLayout(run_info)
         layout.addWidget(output_panel, 1)
-        return page
+
+        # The optimization controls are intentionally allowed to scroll within
+        # the tab on shorter displays instead of forcing the main window larger.
+        scroll = QScrollArea()
+        scroll.setWidgetResizable(True)
+        scroll.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAsNeeded)
+        scroll.setVerticalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAsNeeded)
+        scroll.setWidget(page)
+        return scroll
 
     def _cad_page(self) -> QWidget:
         page = QWidget()
