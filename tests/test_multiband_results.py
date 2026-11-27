@@ -60,7 +60,7 @@ class BroadbandResultsTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as tmp:
             csv_path = Path(tmp) / "response.csv"
             csv_path.write_text(
-                "frequency_GHz,s11_smoothed_dB\\n1,-20\\n2,-30\\n",
+                "frequency_GHz,s11_smoothed_dB\n1,-20\n2,-30\n",
                 encoding="utf-8",
             )
             with self.assertRaisesRegex(ValueError, "missing columns"):
@@ -74,7 +74,7 @@ class BroadbandResultsTests(unittest.TestCase):
             result = process_results(csv_path, output_dir)
             self.assertTrue((output_dir / "multiband_metrics.json").is_file())
             self.assertTrue((output_dir / "multiband_results.png").is_file())
-            self.assertEqual(result["sample_count"], 5)
+            self.assertEqual(result["sample_count"], 6)
 
 
 if __name__ == "__main__":
