@@ -219,9 +219,11 @@ class AutomaticRunTests(unittest.TestCase):
         }
 
         with tempfile.TemporaryDirectory() as temp:
+            config = Path(temp) / "design.yaml"
+            config.write_text("variables: {}\\n", encoding="utf-8")
             output = Path(temp) / "automatic_run"
             result = run_multiband_auto(
-                "design.yaml",
+                config,
                 output,
                 (0.1, 3.0),
                 profile="accurate",
@@ -281,8 +283,10 @@ class AutomaticRunTests(unittest.TestCase):
         }
         run_production.return_value = {"output_dir": "simulation"}
         with tempfile.TemporaryDirectory() as temp:
+            config = Path(temp) / "design.yaml"
+            config.write_text("variables: {}\\n", encoding="utf-8")
             run_multiband_auto(
-                "design.yaml", Path(temp) / "run", (0.1, 1.0),
+                config, Path(temp) / "run", (0.1, 1.0),
                 profile="optimization",
                 pilot_end_criteria_db=-6.0,
                 pilot_max_timesteps=5000,
@@ -301,7 +305,7 @@ class AutomaticRunTests(unittest.TestCase):
             ) as characterize:
                 with self.assertRaises(ValueError):
                     run_multiband_auto(
-                        "design.yaml", Path(temp) / "run", (0.1, 1.0),
+                        config, Path(temp) / "run", (0.1, 1.0),
                         profile="unknown",
                     )
                 characterize.assert_not_called()
