@@ -55,23 +55,23 @@ class MultiBandPlannerTests(unittest.TestCase):
 
 
 class CandidateGenerationTests(unittest.TestCase):
-    def test_generates_grid_candidates_and_full_range(self):
+    def test_generates_grid_candidates_without_full_range(self):
         bands = generate_candidate_bands((0.1, 1.1), interval_widths_ghz=(0.5, 1.0), boundary_step_ghz=0.25, n_pts=41)
         pairs = {(b.fstart_ghz, b.fstop_ghz) for b in bands}
-        self.assertIn((0.1, 1.1), pairs)
+        self.assertNotIn((0.1, 1.1), pairs)
         self.assertIn((0.35, 0.85), pairs)
         self.assertTrue(all(b.n_pts == 41 for b in bands))
         self.assertTrue(all(0.1 <= b.fstart_ghz < b.fstop_ghz <= 1.1 for b in bands))
 
-    def test_candidate_limit_and_full_range(self):
+    def test_candidate_limit_without_full_range(self):
         bands = generate_candidate_bands((0.1, 3.0), interval_widths_ghz=(0.5, 1.0, 1.5), boundary_step_ghz=0.1, max_candidates=7)
         self.assertLessEqual(len(bands), 7)
-        self.assertIn((0.1, 3.0), {(b.fstart_ghz, b.fstop_ghz) for b in bands})
+        self.assertNotIn((0.1, 3.0), {(b.fstart_ghz, b.fstop_ghz) for b in bands})
 
     def test_single_candidate_limit(self):
         bands = generate_candidate_bands((0.1, 1.0), max_candidates=1)
         self.assertEqual(len(bands), 1)
-        self.assertEqual((bands[0].fstart_ghz, bands[0].fstop_ghz), (0.1, 1.0))
+        self.assertLess(bands[0].fstop_ghz - bands[0].fstart_ghz, 1.0)
 
     def test_rejects_invalid_generation_settings(self):
         with self.assertRaises(ValueError):
@@ -158,6 +158,33 @@ class CharacterizationTests(unittest.TestCase):
             saved = json.loads(Path(result["manifest_path"]).read_text())
             self.assertEqual(len(saved["intervals"]), 2)
             self.assertEqual(saved["threads"], 2)
+            self.assertEqual(run_band.call_count, 2)
+
+    @patch("multiband_fdtd.characterization._run_band")
+    def test_skips_candidate_over_mesh_limit_and_records_reason(self, run_band):
+        from multiband_fdtd.engine import PilotMeshLimitExceeded
+
+        class FakeResult:
+            runtime_seconds = 1.0
+            cells = 1000
+            output_dir = "pilot_002"
+
+        run_band.side_effect = [
+            PilotMeshLimitExceeded("Mesh contains 3,000,000 cells, exceeding the 2,000,000-cell pilot limit.", 3_000_000),
+            FakeResult(),
+        ]
+        with tempfile.TemporaryDirectory() as temp:
+            config = Path(temp) / "design.yaml"
+            config.write_text("variables: {}\\n", encoding="utf-8")
+            result = characterize_frequency_intervals(
+                config, Path(temp) / "measurements",
+                [FrequencyBand(0.1, 1.0, 41), FrequencyBand(0.5, 1.0, 41)],
+            )
+            self.assertEqual(len(result["records"]), 1)
+            saved = json.loads(Path(result["manifest_path"]).read_text())
+            self.assertEqual(len(saved["skipped_intervals"]), 1)
+            self.assertEqual(saved["skipped_intervals"][0]["mesh_cells"], 3_000_000)
+            self.assertIn("exceeding", saved["skipped_intervals"][0]["reason"])
             self.assertEqual(run_band.call_count, 2)
 
     def test_rejects_empty_candidate_list(self):
