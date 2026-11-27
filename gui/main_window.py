@@ -249,7 +249,8 @@ class MainWindow(QMainWindow):
         self.optimization_threads.valueChanged.connect(self._optimization_resource_mode_changed)
         self.optimization_cpu_capacity = QLabel(
             f"Available to this process: {self.cpu_resources['physical_cores']} physical cores / "
-            f"{self.cpu_resources['logical_threads']} logical CPUs"
+            f"{self.cpu_resources['logical_threads']} logical CPUs "
+            f"({max(0, int(self.cpu_resources['logical_threads']) - 1)} usable; 1 reserved)"
         )
         self.optimization_allocation_status = QLabel("Default allocation: 4 workers × 2 threads per worker")
         # Keep these read-only diagnostics on compact single lines; wrapping
