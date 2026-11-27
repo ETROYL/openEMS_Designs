@@ -57,6 +57,7 @@ class MainWindow(QMainWindow):
         if not self._logo_pixmap.isNull():
             self.setWindowIcon(QIcon(self._logo_pixmap))
         self.current_config: Path | None = None
+        self._last_valid_simulation_settings_text: str | None = None
         self._preview_config_path: Path | None = None
         self._simulation_config_path: Path | None = None
         self.last_simulation_dir: Path | None = None
@@ -166,6 +167,10 @@ class MainWindow(QMainWindow):
         self.tabs.addTab(self._cad_page(), "CAD Preview")
         self.tabs.addTab(self._simulation_page(), "Simulation")
         self.tabs.addTab(self._results_page(), "Results")
+        # Keep every YAML-derived view synchronized while the project editor changes.
+        # Optimization's manual evaluation override remains intentionally independent.
+        self.editor.textChanged.connect(self._update_simulation_settings)
+        self._update_simulation_settings()
         self.statusBar().showMessage("Ready — open a YAML design to begin")
 
     def _editor_page(self) -> QWidget:
@@ -1388,10 +1393,24 @@ class MainWindow(QMainWindow):
         )
 
     def _update_simulation_settings(self) -> None:
+        """Refresh the Simulation tab from the current valid YAML editor contents."""
         try:
-            self.simulation_settings_label.setText(self._simulation_settings())
-        except (yaml.YAMLError, AttributeError, TypeError):
-            self.simulation_settings_label.setText("Simulation settings could not be read from the current YAML.")
+            settings_text = self._simulation_settings()
+        except (yaml.YAMLError, AttributeError, TypeError, ValueError, OverflowError):
+            previous = self._last_valid_simulation_settings_text
+            if previous:
+                self.simulation_settings_label.setText(
+                    "YAML is temporarily invalid — showing the last valid settings:\\n"
+                    + previous
+                )
+            else:
+                self.simulation_settings_label.setText(
+                    "YAML is not yet valid. Simulation settings will appear when it is corrected."
+                )
+            return
+
+        self._last_valid_simulation_settings_text = settings_text
+        self.simulation_settings_label.setText(settings_text)
 
     def start_simulation(self) -> None:
         if self._simulation_process.state() != QProcess.ProcessState.NotRunning:
