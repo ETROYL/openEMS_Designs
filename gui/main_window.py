@@ -1232,7 +1232,7 @@ class MainWindow(QMainWindow):
             self.statusBar().showMessage("Optimization paused; run history preserved")
         elif self._optimization_stop_requested:
             self.resume_optimization_button.setEnabled(False)
-            self.continue_optimization_button.setEnabled(self._has_stored_optimization_history())
+            self._refresh_continue_eligibility()
             self._set_optimization_status("OPTIMIZATION STOPPED — HISTORY PRESERVED", "neutral")
             self.statusBar().showMessage("Optimization stopped; its history can be continued")
         elif self._optimization_was_completed and self.last_best_design_path and self.last_best_design_path.is_file():
@@ -1242,14 +1242,14 @@ class MainWindow(QMainWindow):
             self.statusBar().showMessage("Optimization completed")
         else:
             self.resume_optimization_button.setEnabled(False)
-            self.continue_optimization_button.setEnabled(self._has_stored_optimization_history())
+            self._refresh_continue_eligibility()
             self._set_optimization_status("OPTIMIZATION FAILED — PROCESS EXIT CODE " + str(exit_code), "failure")
             self.statusBar().showMessage("Optimization failed")
             self.optimization_log.appendPlainText("Optimization process exited with code " + str(exit_code) + ".")
 
     def _optimization_error(self, _error) -> None:
         self.start_optimization_button.setEnabled(True)
-        self.continue_optimization_button.setEnabled(self._has_stored_optimization_history())
+        self._refresh_continue_eligibility()
         self.pause_optimization_button.setEnabled(False)
         self.resume_optimization_button.setEnabled(False)
         self.stop_optimization_button.setEnabled(False)
