@@ -8,8 +8,13 @@ from design import build_design, get_simulation_settings, load_config
 from parallel import NUM_THREADS
 
 def _unique_output_dir(output_parent: Path, design_name: str) -> Path:
-    output_dir = _unique_output_dir(output_parent, design_name)
-    output_dir.mkdir(parents=True, exist_ok=True)
+    output_parent.mkdir(parents=True, exist_ok=True)
+    safe_name = Path(design_name).name or "design"
+    output_dir = output_parent / f"{safe_name}_fdtd"
+    suffix = 1
+    while output_dir.exists():
+        output_dir = output_parent / f"{safe_name}_fdtd_{suffix:02d}"
+        suffix += 1
     return output_dir
 
 
