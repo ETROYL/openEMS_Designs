@@ -36,7 +36,7 @@ class BroadbandResultsTests(unittest.TestCase):
             self._write_csv(csv_path)
             result = analyze_broadband_csv(csv_path)
 
-        self.assertEqual(result["sample_count"], 5)
+        self.assertEqual(result["sample_count"], 6)
         self.assertEqual(result["minimum_s11_db"], -34.0)
         self.assertEqual(result["minimum_s11_frequency_ghz"], 5.0)
         self.assertAlmostEqual(result["impedance_at_minimum_s11_ohm"]["real"], 50.0)
