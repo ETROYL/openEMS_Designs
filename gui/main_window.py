@@ -20,7 +20,7 @@ from matplotlib.figure import Figure
 from PySide6.QtCore import Qt, QProcess
 from PySide6.QtGui import QIcon, QPixmap
 from PySide6.QtWidgets import (
-    QComboBox, QDoubleSpinBox, QFileDialog, QFormLayout, QGroupBox, QHBoxLayout, QLabel, QMainWindow,
+    QCheckBox, QComboBox, QDoubleSpinBox, QFileDialog, QFormLayout, QGroupBox, QHBoxLayout, QLabel, QMainWindow,
     QMessageBox, QPlainTextEdit, QProgressBar, QPushButton, QRadioButton, QScrollArea,
     QSpinBox, QTabWidget, QToolBar, QVBoxLayout, QWidget,
 )
@@ -276,6 +276,15 @@ class MainWindow(QMainWindow):
         # or use a GUI-only override saved with this optimization run.
         evaluation_box = QGroupBox("FDTD parameters used during optimization")
         evaluation_layout = QVBoxLayout(evaluation_box)
+        self.optimization_multiband_checkbox = QCheckBox(
+            "Use multi-band simulation"
+        )
+        self.optimization_multiband_checkbox.setChecked(True)
+        self.optimization_multiband_checkbox.setToolTip(
+            "Prepare one fixed interval plan from the YAML default geometry, "
+            "then reuse it for every candidate and resumed evaluation."
+        )
+        evaluation_layout.addWidget(self.optimization_multiband_checkbox)
         self.use_simulation_parameters_radio = QRadioButton(
             "Use simulation parameters for Optimization"
         )
@@ -748,6 +757,7 @@ class MainWindow(QMainWindow):
                 "threads_per_worker": threads_per_worker,
                 "simulation_settings": dict(config.get("simulation") or {}),
                 "use_simulation_parameters": self.use_simulation_parameters_radio.isChecked(),
+                "use_multiband": self.optimization_multiband_checkbox.isChecked(),
                 "evaluation_settings": evaluation_settings,
             }
             metadata_path.write_text(json.dumps(metadata, indent=2), encoding="utf-8")
@@ -782,6 +792,12 @@ class MainWindow(QMainWindow):
             "Strategy: " + ("ETROYL Discrete" if strategy_index == 0 else "Optuna TPE")
         )
         self.optimization_log.appendPlainText("Objective: " + objective_name)
+        self.optimization_log.appendPlainText(
+            "Simulation engine: " + (
+                "multi-band" if self.optimization_multiband_checkbox.isChecked()
+                else "standard single-band"
+            )
+        )
         self.optimization_log.appendPlainText(
             f"Requested allocation: {workers} worker(s) × {threads_per_worker} thread(s) per worker"
         )
