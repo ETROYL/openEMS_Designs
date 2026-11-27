@@ -15,6 +15,7 @@ from pathlib import Path
 import yaml
 
 from gui.cpu_resources import detect_cpu_resources, validate_allocation
+from gui.optimization_compatibility import find_incompatible_settings
 from matplotlib.backends.backend_qtagg import FigureCanvasQTAgg as FigureCanvas
 from matplotlib.figure import Figure
 from PySide6.QtCore import Qt, QProcess
@@ -352,6 +353,13 @@ class MainWindow(QMainWindow):
         self._update_optimization_evaluation_defaults()
         self._optimization_evaluation_mode_changed()
         self.editor.textChanged.connect(self._update_optimization_evaluation_defaults)
+        self.optimization_multiband_checkbox.toggled.connect(self._refresh_continue_eligibility)
+        self.use_simulation_parameters_radio.toggled.connect(self._refresh_continue_eligibility)
+        for control in self._optimization_evaluation_controls:
+            control.valueChanged.connect(self._refresh_continue_eligibility)
+        self.editor.textChanged.connect(self._refresh_continue_eligibility)
+        self._refresh_continue_eligibility()
+
 
         controls = QHBoxLayout()
         self.start_optimization_button = QPushButton("Start new optimization")
@@ -719,6 +727,52 @@ class MainWindow(QMainWindow):
         self.optimization_weight_s11.setEnabled(combined)
         self.optimization_weight_smoothness.setEnabled(combined)
 
+
+    def _continue_compatibility_mismatches(self, metadata: dict) -> list[str]:
+        """Compare current evaluation controls with the immutable run profile."""
+        config = yaml.safe_load(self.editor.toPlainText()) or {}
+        simulation = config.get("simulation") or {}
+        current_override = (
+            None if self.use_simulation_parameters_radio.isChecked()
+            else self._optimization_evaluation_settings()
+        )
+        return find_incompatible_settings(
+            metadata,
+            current_simulation_settings=simulation,
+            current_evaluation_settings=current_override,
+            current_use_multiband=self.optimization_multiband_checkbox.isChecked(),
+        )
+
+    def _refresh_continue_eligibility(self, *_args) -> None:
+        """Keep Continue disabled whenever current controls differ from the saved run."""
+        button = getattr(self, "continue_optimization_button", None)
+        if button is None:
+            return
+        reason = "Continue is available only for a run with stored evaluations."
+        enabled = False
+        if (
+            self._optimization_process.state() == QProcess.ProcessState.NotRunning
+            and self._has_stored_optimization_history()
+            and self._optimization_metadata_path
+            and not (self._optimization_pause_file and self._optimization_pause_file.exists())
+        ):
+            try:
+                metadata = json.loads(self._optimization_metadata_path.read_text(encoding="utf-8"))
+                mismatches = self._continue_compatibility_mismatches(metadata)
+                if mismatches:
+                    reason = (
+                        "Continue is disabled because these evaluation settings differ "
+                        "from the saved run: " + ", ".join(mismatches)
+                        + ". Start a new optimization to change them."
+                    )
+                else:
+                    enabled = True
+                    reason = "Evaluation settings match the saved run."
+            except (OSError, ValueError, TypeError, json.JSONDecodeError, yaml.YAMLError) as exc:
+                reason = "Continue is unavailable: " + str(exc)
+        button.setEnabled(enabled)
+        button.setToolTip(reason)
+
     def start_optimization(self) -> None:
         if self._optimization_process.state() != QProcess.ProcessState.NotRunning:
             QMessageBox.information(self, "Optimization", "An optimization is already running.")
@@ -933,6 +987,13 @@ class MainWindow(QMainWindow):
             pass
         try:
             metadata = json.loads(self._optimization_metadata_path.read_text(encoding="utf-8"))
+            mismatches = self._continue_compatibility_mismatches(metadata)
+            if mismatches:
+                raise ValueError(
+                    "The current evaluation settings do not match this run: "
+                    + ", ".join(mismatches)
+                    + ". Restore the original settings or start a new optimization."
+                )
             database = self._optimization_run_dir / "evaluations.sqlite"
             if not database.is_file():
                 raise FileNotFoundError("The run's evaluations.sqlite database is missing.")
@@ -1159,7 +1220,7 @@ class MainWindow(QMainWindow):
             self.load_best_design_button.setEnabled(True)
         if self._optimization_kill_requested:
             self.resume_optimization_button.setEnabled(False)
-            self.continue_optimization_button.setEnabled(self._has_stored_optimization_history())
+            self._refresh_continue_eligibility()
             self.start_optimization_button.setEnabled(True)
             self._set_optimization_status("OPTIMIZATION KILLED — STORED HISTORY PRESERVED", "failure")
             self.statusBar().showMessage("Optimization killed; completed evaluations remain available")
@@ -1176,7 +1237,7 @@ class MainWindow(QMainWindow):
             self.statusBar().showMessage("Optimization stopped; its history can be continued")
         elif self._optimization_was_completed and self.last_best_design_path and self.last_best_design_path.is_file():
             self.resume_optimization_button.setEnabled(False)
-            self.continue_optimization_button.setEnabled(True)
+            self._refresh_continue_eligibility()
             self._set_optimization_status("OPTIMIZATION COMPLETED SUCCESSFULLY", "success")
             self.statusBar().showMessage("Optimization completed")
         else:
