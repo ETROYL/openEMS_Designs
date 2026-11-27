@@ -300,6 +300,8 @@ class AutomaticRunTests(unittest.TestCase):
 
     def test_rejects_invalid_profile_before_characterization(self):
         with tempfile.TemporaryDirectory() as temp:
+            config = Path(temp) / "design.yaml"
+            config.write_text("variables: {}\\n", encoding="utf-8")
             with patch(
                 "multiband_fdtd.characterization.characterize_and_select_intervals"
             ) as characterize:
