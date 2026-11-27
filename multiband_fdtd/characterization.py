@@ -1,6 +1,7 @@
 """Utilities for collecting interval simulation data."""
 from __future__ import annotations
 
+import hashlib
 import json
 import math
 from dataclasses import asdict
@@ -172,6 +173,91 @@ def characterize_and_select_intervals(
     return result
 
 
+
+def load_interval_plan(
+    plan_path: str | Path,
+    *,
+    n_points: int | None = None,
+    config_path: str | Path | None = None,
+) -> list[FrequencyBand]:
+    """Load and validate a previously measured interval plan.
+
+    If n_points is supplied, each interval receives enough extraction samples
+    to match the requested uniform broadband output spacing. The interval
+    boundaries remain unchanged, so the plan stays frozen across evaluations.
+    When config_path is supplied, its content hash must match the design used
+    to prepare the plan.
+    """
+    path = Path(plan_path).expanduser().resolve()
+    if not path.is_file():
+        raise FileNotFoundError(path)
+    with path.open("r", encoding="utf-8") as stream:
+        manifest = json.load(stream)
+
+    if manifest.get("plan_version") != 1:
+        raise ValueError("Unsupported or missing interval plan version.")
+    selection = manifest.get("selection")
+    if not isinstance(selection, dict):
+        raise ValueError("The file does not contain a selected interval plan.")
+    frequency_range = selection.get("frequency_range_ghz")
+    if (not isinstance(frequency_range, list) or len(frequency_range) != 2):
+        raise ValueError("The interval plan has an invalid frequency range.")
+    fmin, fmax = map(float, frequency_range)
+    if not (math.isfinite(fmin) and math.isfinite(fmax) and 0 < fmin < fmax):
+        raise ValueError("The interval plan has an invalid frequency range.")
+
+    intervals = selection.get("selected_intervals")
+    if not isinstance(intervals, list) or not intervals:
+        raise ValueError("The interval plan contains no selected intervals.")
+
+    if config_path is not None:
+        config = Path(config_path).expanduser().resolve()
+        if not config.is_file():
+            raise FileNotFoundError(config)
+        expected = manifest.get("config_sha256")
+        actual = hashlib.sha256(config.read_bytes()).hexdigest()
+        if not expected or actual != expected:
+            raise ValueError(
+                "The interval plan was prepared from a different design configuration."
+            )
+
+    if n_points is not None and (
+        not isinstance(n_points, int) or n_points < 2
+    ):
+        raise ValueError("n_points must be an integer of at least 2.")
+
+    pilot_points = manifest.get("candidate_generation", {}).get("n_pts", 41)
+    if not isinstance(pilot_points, int) or pilot_points < 2:
+        raise ValueError("The interval plan has invalid pilot sampling settings.")
+    broadband_step = (
+        (fmax - fmin) / (n_points - 1) if n_points is not None else None
+    )
+
+    bands = []
+    for item in intervals:
+        try:
+            low = float(item["fstart_ghz"])
+            high = float(item["fstop_ghz"])
+        except (KeyError, TypeError, ValueError) as exc:
+            raise ValueError("The interval plan contains an invalid interval.") from exc
+        samples = (
+            max(2, int(math.ceil((high - low) / broadband_step)) + 1)
+            if broadband_step is not None else pilot_points
+        )
+        band = FrequencyBand(low, high, samples)
+        band.validate()
+        bands.append(band)
+
+    bands.sort(key=lambda band: band.fstart_ghz)
+    if bands[0].fstart_ghz > fmin + 1e-12:
+        raise ValueError("The interval plan does not cover the lower frequency limit.")
+    if bands[-1].fstop_ghz < fmax - 1e-12:
+        raise ValueError("The interval plan does not cover the upper frequency limit.")
+    for left, right in zip(bands, bands[1:]):
+        if right.fstart_ghz > left.fstop_ghz + 1e-12:
+            raise ValueError("The interval plan contains a frequency gap.")
+    return bands
+
 def characterize_frequency_intervals(
     config_path: str | Path,
     output_dir: str | Path,
@@ -250,8 +336,11 @@ def characterize_frequency_intervals(
             "Increase max_pilot_mesh_cells or review the design mesh."
         )
 
+    config_digest = hashlib.sha256(config.read_bytes()).hexdigest()
     manifest = {
+        "plan_version": 1,
         "config_path": str(config),
+        "config_sha256": config_digest,
         "reference_geometry": "YAML configured default variable values",
         "end_criteria_db": float(end_criteria_db),
         "max_timesteps": int(max_timesteps),
