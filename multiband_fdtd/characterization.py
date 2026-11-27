@@ -152,6 +152,9 @@ def characterize_and_select_intervals(
                 manifest_path = root / "characterization.json"
                 manifest = cached["manifest"]
                 manifest["cache_hit"] = True
+                manifest["cached_from"] = str(cache_path)
+                for interval in manifest.get("intervals", []):
+                    interval["output_dir"] = None
                 manifest_path.write_text(
                     json.dumps(manifest, indent=2), encoding="utf-8"
                 )
