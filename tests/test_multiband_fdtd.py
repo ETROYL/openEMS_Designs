@@ -175,7 +175,7 @@ class CharacterizationTests(unittest.TestCase):
         ]
         with tempfile.TemporaryDirectory() as temp:
             config = Path(temp) / "design.yaml"
-            config.write_text("variables: {}\\n", encoding="utf-8")
+            config.write_text("variables: {}\n", encoding="utf-8")
             result = characterize_frequency_intervals(
                 config, Path(temp) / "measurements",
                 [FrequencyBand(0.1, 1.0, 41), FrequencyBand(0.5, 1.0, 41)],
@@ -220,7 +220,7 @@ class AutomaticRunTests(unittest.TestCase):
 
         with tempfile.TemporaryDirectory() as temp:
             config = Path(temp) / "design.yaml"
-            config.write_text("variables: {}\\n", encoding="utf-8")
+            config.write_text("variables: {}\n", encoding="utf-8")
             output = Path(temp) / "automatic_run"
             result = run_multiband_auto(
                 config,
@@ -284,7 +284,7 @@ class AutomaticRunTests(unittest.TestCase):
         run_production.return_value = {"output_dir": "simulation"}
         with tempfile.TemporaryDirectory() as temp:
             config = Path(temp) / "design.yaml"
-            config.write_text("variables: {}\\n", encoding="utf-8")
+            config.write_text("variables: {}\n", encoding="utf-8")
             run_multiband_auto(
                 config, Path(temp) / "run", (0.1, 1.0),
                 profile="optimization",
