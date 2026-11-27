@@ -1862,9 +1862,17 @@ class MainWindow(QMainWindow):
 
     def _postprocess_error(self, _error) -> None:
         self.run_simulation_button.setEnabled(True)
-        self.run_postprocess_button.setEnabled(
-            bool(self.last_simulation_dir and self.last_simulation_config)
+        can_process = bool(
+            self.last_simulation_dir and self.last_simulation_dir.is_dir()
+            and (
+                (self.last_simulation_multiband
+                 and (self.last_simulation_dir / "broadband_response.csv").is_file())
+                or
+                (not self.last_simulation_multiband
+                 and self.last_simulation_config and self.last_simulation_config.is_file())
+            )
         )
+        self.run_postprocess_button.setEnabled(can_process)
         self.results_status.setText("Could not start post-processing. Check Python and Matplotlib dependencies.")
         self.results_log.appendPlainText(
             "Could not start the post-processing process. Check the Python environment and openEMS imports."
