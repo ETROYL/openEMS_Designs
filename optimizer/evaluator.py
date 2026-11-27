@@ -110,9 +110,7 @@ class CandidateEvaluator:
         self.interval_plan_path = (
             os.path.abspath(interval_plan_path) if interval_plan_path else None
         )
-        self.evaluation_settings = (
-            None if evaluation_settings is None else dict(evaluation_settings)
-        )
+        self.evaluation_settings = dict(evaluation_settings or {})
         self.interval_plan_sha256 = None
         if self.interval_plan_path:
             if not os.path.isfile(self.interval_plan_path):
