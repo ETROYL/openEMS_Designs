@@ -20,6 +20,7 @@ class _InlineProcessPool:
 
     def __init__(self, max_workers, **_kwargs):
         self.max_workers = max_workers
+        self.kwargs = _kwargs
         self.max_in_flight = 0
         self.submitted = 0
         self.__class__.instances.append(self)
@@ -81,10 +82,12 @@ class ParallelOptimizerSchedulingTests(unittest.TestCase):
                     summary = optimizer.run_parallel(
                         4, workers=4, threads_per_worker=2,
                         objective_name="minimize_s11_in_band",
+                        interval_plan_path="fixed-plan.json",
                     )
 
                 pool = _InlineProcessPool.instances[-1]
                 self.assertEqual(pool.max_workers, 4)
+                self.assertEqual(pool.kwargs["initargs"][-1], "fixed-plan.json")
                 self.assertEqual(pool.submitted, 4)
                 self.assertEqual(len(summary.evaluations), 4)
                 self.assertEqual(store.count(), 4)
