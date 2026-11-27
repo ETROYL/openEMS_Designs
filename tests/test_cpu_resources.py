@@ -15,7 +15,7 @@ class CpuResourceTests(unittest.TestCase):
         "physical_cores": 8, "logical_threads": 16
     })
     def test_valid_manual_allocation(self, _mock_resources):
-        validate_allocation(4, 4)
+        validate_allocation(4, 3)
 
     @patch("gui.cpu_resources.detect_cpu_resources", return_value={
         "physical_cores": 8, "logical_threads": 16
@@ -34,8 +34,21 @@ class CpuResourceTests(unittest.TestCase):
     @patch("gui.cpu_resources.detect_cpu_resources", return_value={
         "physical_cores": 8, "logical_threads": 16
     })
+    def test_accepts_allocation_with_one_cpu_reserved(self, _mock_resources):
+        validate_allocation(7, 2)
+
+    @patch("gui.cpu_resources.detect_cpu_resources", return_value={
+        "physical_cores": 8, "logical_threads": 16
+    })
+    def test_rejects_allocation_consuming_reserved_cpu(self, _mock_resources):
+        with self.assertRaisesRegex(ValueError, "usable logical CPU budget"):
+            validate_allocation(8, 2)
+
+    @patch("gui.cpu_resources.detect_cpu_resources", return_value={
+        "physical_cores": 8, "logical_threads": 16
+    })
     def test_rejects_total_thread_overcommit(self, _mock_resources):
-        with self.assertRaisesRegex(ValueError, "Total allocation"):
+        with self.assertRaisesRegex(ValueError, "usable logical CPU budget"):
             validate_allocation(5, 4)
 
 
