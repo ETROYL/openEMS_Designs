@@ -97,8 +97,14 @@ def _run_band(config_path: Path, output_dir: Path, band: FrequencyBand,
     csx.Write2XML(str(output_dir / "geometry.xml"))
 
     started = time.perf_counter()
-    # Match the invocation used by the validated study benchmark.
-    fdtd.Run(str(output_dir), numThreads=threads)
+    # The solver may change the process working directory. Keep all later
+    # paths stable for callers that use relative paths.
+    original_cwd = Path.cwd()
+    try:
+        # Match the invocation used by the validated study benchmark.
+        fdtd.Run(str(output_dir), numThreads=threads)
+    finally:
+        os.chdir(original_cwd)
     elapsed = time.perf_counter() - started
 
     # Recreate the port object for frequency-domain extraction.
@@ -369,6 +375,12 @@ def run_multiband_auto(
     if not math.isfinite(pilot_end_criteria_db) or pilot_end_criteria_db >= 0:
         raise ValueError("pilot_end_criteria_db must be finite and negative.")
 
+    # Resolve the source before any solver invocation. openEMS may change
+    # the process working directory while running a pilot.
+    config = Path(config_path).expanduser().resolve()
+    if not config.is_file():
+        raise FileNotFoundError(config)
+
     root = Path(output_dir).expanduser().resolve()
     root.parent.mkdir(parents=True, exist_ok=True)
     root.mkdir(parents=False, exist_ok=False)
@@ -377,7 +389,7 @@ def run_multiband_auto(
     from .characterization import characterize_and_select_intervals
 
     plan = characterize_and_select_intervals(
-        config_path=config_path,
+        config_path=config,
         output_dir=root / "characterization",
         frequency_range_ghz=frequency_range_ghz,
         interval_widths_ghz=interval_widths_ghz,
@@ -409,7 +421,7 @@ def run_multiband_auto(
     ]
 
     production = run_multiband(
-        config_path=config_path,
+        config_path=config,
         output_dir=root / "simulation",
         bands=selected_bands,
         profile=profile,
