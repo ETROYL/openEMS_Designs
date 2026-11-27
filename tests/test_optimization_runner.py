@@ -15,7 +15,7 @@ class IntervalPlanRunnerTests(unittest.TestCase):
         self.run_dir = self.root / "run"
         self.run_dir.mkdir()
         self.config = self.root / "design.yaml"
-        self.config.write_text("variables: {}\\nsimulation: {}\\n", encoding="utf-8")
+        self.config.write_text("variables: {}\nsimulation: {}\n", encoding="utf-8")
         self.plan_path = self.run_dir / "interval_preparation" / "characterization.json"
         self.bands = [
             FrequencyBand(0.1, 0.6, 168),
