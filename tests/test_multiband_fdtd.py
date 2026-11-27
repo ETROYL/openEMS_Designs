@@ -266,6 +266,9 @@ class AutomaticRunTests(unittest.TestCase):
         self.assertEqual(characterize.call_args.kwargs["max_timesteps"], 12000)
         self.assertEqual(characterize.call_args.kwargs["threads"], 2)
         self.assertEqual(characterize.call_args.kwargs["n_pts"], 31)
+        self.assertEqual(
+            characterize.call_args.kwargs["max_pilot_mesh_cells"], 2_000_000
+        )
 
     @patch("multiband_fdtd.engine.run_multiband")
     @patch("multiband_fdtd.characterization.characterize_and_select_intervals")
