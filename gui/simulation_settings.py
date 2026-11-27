@@ -77,6 +77,7 @@ def parse_simulation_settings(yaml_text: str) -> dict:
         "end_criteria_db": decay_db,
         "max_timesteps": max_timesteps,
         "legacy_end_criteria": simulation.get("end_criteria", 1e-4),
+        "uses_db_criterion": "end_criteria_db" in simulation,
     }
 
 
@@ -87,7 +88,7 @@ def format_simulation_settings(yaml_text: str) -> str:
         frequency_text = "—–—"
     else:
         frequency_text = f"{settings['fstart']:g}–{settings['fstop']:g}"
-    if "end_criteria_db" in yaml.safe_load(yaml_text).get("simulation", {}):
+    if settings["uses_db_criterion"]:
         decay_text = f"{settings['end_criteria_db']:g} dB"
     else:
         decay_text = f"legacy linear threshold {settings['legacy_end_criteria']:g}"
