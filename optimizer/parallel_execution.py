@@ -19,6 +19,7 @@ def initialize_fdtd_worker(
     objective_weights: dict[str, float],
     threads_per_worker: int,
     evaluation_settings: dict[str, Any] | None = None,
+    interval_plan_path: str | None = None,
 ) -> None:
     """Configure native thread pools, then construct one evaluator per process."""
     global _WORKER_EVALUATOR
@@ -42,6 +43,7 @@ def initialize_fdtd_worker(
         objective_name=objective_name,
         objective_weights=objective_weights,
         evaluation_settings=evaluation_settings,
+        interval_plan_path=interval_plan_path,
     )
 
 
