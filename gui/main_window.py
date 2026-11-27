@@ -568,7 +568,7 @@ class MainWindow(QMainWindow):
         self.s11_plot_label = QLabel("S-parameter / impedance plot will appear here.")
         self.s11_plot_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
         self.s11_plot_label.setMinimumWidth(400)
-        self.s11_plot_label.setMinimumHeight(500)
+        self.s11_plot_label.setMinimumHeight(720)
         self.s11_plot_label.setSizePolicy(
             QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Expanding
         )
@@ -576,7 +576,7 @@ class MainWindow(QMainWindow):
         self.radiation_plot_label = QLabel("Radiation / far-field plot will appear here.")
         self.radiation_plot_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
         self.radiation_plot_label.setMinimumWidth(400)
-        self.radiation_plot_label.setMinimumHeight(500)
+        self.radiation_plot_label.setMinimumHeight(720)
         self.radiation_plot_label.setSizePolicy(
             QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Expanding
         )
@@ -584,7 +584,7 @@ class MainWindow(QMainWindow):
 
         plots_widget = QWidget()
         self.results_plots_widget = plots_widget
-        plots_widget.setMinimumHeight(1020)
+        plots_widget.setMinimumHeight(1460)
         plots_layout = QVBoxLayout(plots_widget)
         plots_layout.setContentsMargins(18, 18, 18, 18)
         plots_layout.setSpacing(18)
@@ -1571,7 +1571,7 @@ class MainWindow(QMainWindow):
                         except (OSError, ValueError, TypeError):
                             pass
                     self.radiation_plot_label.setVisible(far_field_available)
-                    self.results_plots_widget.setMinimumHeight(1020 if far_field_available else 520)
+                    self.results_plots_widget.setMinimumHeight(1460 if far_field_available else 740)
                     self._load_result_plot(
                         self.s11_plot_label, self.last_simulation_dir / "s11_plot.png"
                     )
@@ -1750,7 +1750,7 @@ class MainWindow(QMainWindow):
                 self._show_multiband_metrics(self.last_simulation_dir / "multiband_metrics.json")
                 radiation_path = self.last_simulation_dir / "radiation_plot.png"
                 self.radiation_plot_label.setVisible(radiation_path.is_file())
-                self.results_plots_widget.setMinimumHeight(1020 if radiation_path.is_file() else 520)
+                self.results_plots_widget.setMinimumHeight(1460 if radiation_path.is_file() else 740)
                 if radiation_path.is_file():
                     self._load_result_plot(self.radiation_plot_label, radiation_path)
                 self.results_status.setText(
