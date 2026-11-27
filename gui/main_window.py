@@ -269,28 +269,27 @@ class MainWindow(QMainWindow):
             f"({max(0, int(self.cpu_resources['logical_threads']) - 1)} usable; 1 reserved)"
         )
         self.optimization_allocation_status = QLabel("Default allocation: 4 workers × 2 threads per worker")
-        # Keep these read-only diagnostics on compact single lines; wrapping
-        # made their text clip vertically and unnecessarily increased the panel.
+        # Keep resource diagnostics visible and let their text wrap naturally
+        # across the full width of the right-hand settings column.
         self.optimization_cpu_capacity.setWordWrap(True)
         self.optimization_allocation_status.setWordWrap(True)
         for diagnostic_label in (
             self.optimization_cpu_capacity,
             self.optimization_allocation_status,
         ):
-            diagnostic_label.setMinimumHeight(22)
-            diagnostic_label.setMaximumWidth(360)
+            diagnostic_label.setMinimumHeight(28)
             diagnostic_label.setSizePolicy(
-                QSizePolicy.Policy.Ignored, QSizePolicy.Policy.Preferred
+                QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Minimum
             )
 
-        # Five editable controls on the right, followed by read-only validation details.
+        # Five editable controls on the right, followed by full-width diagnostics.
         right_settings.addRow("Candidate pool size", self.optimization_pool_size)
         right_settings.addRow("Random seed (-1 = random)", self.optimization_seed)
         right_settings.addRow("Hardware allocation", self.optimization_resource_mode)
         right_settings.addRow("Workers", self.optimization_workers)
         right_settings.addRow("Threads per worker", self.optimization_threads)
-        right_settings.addRow("Detected CPU capacity", self.optimization_cpu_capacity)
-        right_settings.addRow("Allocation validation", self.optimization_allocation_status)
+        right_settings.addRow(self.optimization_cpu_capacity)
+        right_settings.addRow(self.optimization_allocation_status)
 
         settings_layout.addLayout(left_settings, 1)
         settings_layout.addLayout(right_settings, 1)
@@ -395,14 +394,20 @@ class MainWindow(QMainWindow):
         self.optimization_log = QPlainTextEdit()
         self.optimization_log.setReadOnly(True)
         self.optimization_log.setPlaceholderText("Optimization progress and evaluation output will appear here…")
-        self.optimization_log.setMinimumWidth(360)
-        self.optimization_log.setMinimumHeight(260)
+        self.optimization_log.setMinimumWidth(240)
+        self.optimization_log.setMinimumHeight(150)
+        self.optimization_log.setSizePolicy(
+            QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Ignored
+        )
 
         # Embedded live convergence chart, displayed beside the textual console.
         self.optimization_figure = Figure(figsize=(5.0, 3.0), tight_layout=True)
         self.optimization_canvas = FigureCanvas(self.optimization_figure)
-        self.optimization_canvas.setMinimumWidth(340)
-        self.optimization_canvas.setMinimumHeight(260)
+        self.optimization_canvas.setMinimumWidth(240)
+        self.optimization_canvas.setMinimumHeight(150)
+        self.optimization_canvas.setSizePolicy(
+            QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Ignored
+        )
         self.optimization_axes = self.optimization_figure.add_subplot(111)
         self._reset_optimization_plot()
 
