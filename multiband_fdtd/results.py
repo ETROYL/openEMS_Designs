@@ -12,7 +12,10 @@ from pathlib import Path
 import numpy as np
 
 
-_REQUIRED_COLUMNS = 10
+_REQUIRED_COLUMNS = (
+    "frequency_GHz", "s11_smoothed_dB",
+    "z_in_smoothed_real", "z_in_smoothed_imag",
+)
 
 
 def _threshold_ranges(frequency: np.ndarray, s11_db: np.ndarray,
@@ -44,16 +47,13 @@ def analyze_broadband_csv(csv_path: str | Path) -> dict:
                              encoding="utf-8")
     except (OSError, ValueError) as exc:
         raise ValueError(f"Could not read broadband response CSV: {exc}") from exc
-    if data.dtype.names is None or data.size < 2:
-        raise ValueError("Broadband response CSV must contain at least two data rows.")
-    names = data.dtype.names
-    required = (
-        "frequency_GHz", "s11_smoothed_dB",
-        "z_in_smoothed_real", "z_in_smoothed_imag",
-    )
-    missing = [name for name in required if name not in names]
+    if data.dtype.names is None:
+        raise ValueError("Broadband response CSV must contain a header row.")
+    missing = [name for name in _REQUIRED_COLUMNS if name not in data.dtype.names]
     if missing:
         raise ValueError("Broadband response CSV is missing columns: " + ", ".join(missing))
+    if data.size < 2:
+        raise ValueError("Broadband response CSV must contain at least two data rows.")
 
     frequency = np.atleast_1d(data["frequency_GHz"]).astype(float)
     s11_db = np.atleast_1d(data["s11_smoothed_dB"]).astype(float)
