@@ -41,11 +41,13 @@ class ActiveVariableTests(unittest.TestCase):
                 [FrequencyBand(0.1, 1.0, 2)],
                 profile="optimization",
                 active_vars=active_vars,
+                record_far_field=True,
             )
             run_band.assert_called_once()
             self.assertEqual(
                 run_band.call_args.kwargs["active_vars"], active_vars
             )
+            self.assertTrue(run_band.call_args.kwargs["record_far_field"])
 
 
 class MultiBandPlannerTests(unittest.TestCase):
@@ -511,6 +513,7 @@ class AutomaticRunTests(unittest.TestCase):
                 n_points=801,
                 threads=4,
                 smoothing_sigma_points=1.5,
+                record_far_field=True,
             )
 
         self.assertEqual(
@@ -539,6 +542,7 @@ class AutomaticRunTests(unittest.TestCase):
         self.assertEqual(
             run_production.call_args.kwargs["smoothing_sigma_points"], 1.5
         )
+        self.assertTrue(run_production.call_args.kwargs["record_far_field"])
         self.assertEqual(characterize.call_args.kwargs["end_criteria_db"], -8.0)
         self.assertEqual(characterize.call_args.kwargs["max_timesteps"], 12000)
         self.assertEqual(characterize.call_args.kwargs["threads"], 2)
