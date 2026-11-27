@@ -568,7 +568,7 @@ class MainWindow(QMainWindow):
         self.s11_plot_label = QLabel("S-parameter / impedance plot will appear here.")
         self.s11_plot_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
         self.s11_plot_label.setMinimumWidth(400)
-        self.s11_plot_label.setMinimumHeight(380)
+        self.s11_plot_label.setMinimumHeight(500)
         self.s11_plot_label.setSizePolicy(
             QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Expanding
         )
@@ -576,17 +576,17 @@ class MainWindow(QMainWindow):
         self.radiation_plot_label = QLabel("Radiation / far-field plot will appear here.")
         self.radiation_plot_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
         self.radiation_plot_label.setMinimumWidth(400)
-        self.radiation_plot_label.setMinimumHeight(380)
+        self.radiation_plot_label.setMinimumHeight(500)
         self.radiation_plot_label.setSizePolicy(
             QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Expanding
         )
         self.radiation_plot_label.setStyleSheet("background: palette(alternate-base); border-radius: 6px;")
 
         plots_widget = QWidget()
-        plots_widget.setMinimumHeight(420)
-        plots_layout = QHBoxLayout(plots_widget)
+        plots_widget.setMinimumHeight(1020)
+        plots_layout = QVBoxLayout(plots_widget)
         plots_layout.setContentsMargins(18, 18, 18, 18)
-        plots_layout.setSpacing(22)
+        plots_layout.setSpacing(18)
         plots_layout.addWidget(self.s11_plot_label, 1)
         plots_layout.addWidget(self.radiation_plot_label, 1)
         scroll = QScrollArea()
@@ -1558,17 +1558,26 @@ class MainWindow(QMainWindow):
                     response_csv = self.last_simulation_dir / "broadband_response.csv"
                     self.run_postprocess_button.setEnabled(response_csv.is_file())
                     self.run_postprocess_button.setToolTip(
-                        "Analyze the reconstructed broadband response. Far-field/NF2FF "
-                        "processing is not available for this simulation type."
+                        "Calculate matching metrics and, when available, full far-field characteristics."
                     )
-                    self.radiation_plot_label.setVisible(False)
+                    run_manifest = self.last_simulation_dir / "multiband_run.json"
+                    far_field_available = False
+                    if run_manifest.is_file():
+                        try:
+                            far_field_available = bool(json.loads(
+                                run_manifest.read_text(encoding="utf-8")
+                            ).get("far_field_recorded"))
+                        except (OSError, ValueError, TypeError):
+                            pass
+                    self.radiation_plot_label.setVisible(far_field_available)
                     self._load_result_plot(
                         self.s11_plot_label, self.last_simulation_dir / "s11_plot.png"
                     )
                     self.results_status.setText(
-                        "Broadband response is ready. Run post-processing to calculate "
-                        "matching bandwidth, resonances, VSWR and impedance metrics. "
-                        f"Numerical response data: {self.last_simulation_dir}"
+                        "Broadband response is ready. Run post-processing for matching metrics"
+                        + (" and full far-field characteristics." if far_field_available
+                           else ". Far-field data was not recorded for this run.")
+                        + f" Numerical response data: {self.last_simulation_dir}"
                     )
                 else:
                     self.run_postprocess_button.setEnabled(True)
@@ -1617,11 +1626,19 @@ class MainWindow(QMainWindow):
             self._postprocess_process.state() == QProcess.ProcessState.NotRunning
         )
         self.run_postprocess_button.setToolTip(
-            "Analyze the reconstructed broadband response. Far-field/NF2FF "
-            "processing is not available for this simulation type."
+            "Calculate broadband matching metrics and, when recorded, full far-field characteristics."
         )
-        self.radiation_plot_label.setVisible(False)
+        run_manifest = output_dir / "multiband_run.json"
+        far_field_available = False
+        if run_manifest.is_file():
+            try:
+                far_field_available = bool(json.loads(run_manifest.read_text(encoding="utf-8")).get("far_field_recorded"))
+            except (OSError, ValueError, TypeError):
+                far_field_available = False
+        self.radiation_plot_label.setVisible(far_field_available)
         self._load_result_plot(self.s11_plot_label, output_dir / "multiband_results.png")
+        if far_field_available and (output_dir / "radiation_plot.png").is_file():
+            self._load_result_plot(self.radiation_plot_label, output_dir / "radiation_plot.png")
         if not (output_dir / "multiband_results.png").is_file():
             self._load_result_plot(self.s11_plot_label, output_dir / "s11_plot.png")
 
@@ -1679,6 +1696,14 @@ class MainWindow(QMainWindow):
                 "--csv", str(response_csv),
                 "--output-dir", str(self.last_simulation_dir),
             ]
+            run_manifest = self.last_simulation_dir / "multiband_run.json"
+            if run_manifest.is_file():
+                try:
+                    manifest = json.loads(run_manifest.read_text(encoding="utf-8"))
+                    if manifest.get("far_field_recorded"):
+                        process_args.extend(["--simulation-dir", str(self.last_simulation_dir)])
+                except (OSError, ValueError, TypeError):
+                    pass
         else:
             process_args = [
                 "-m", "postprocess",
@@ -1713,7 +1738,10 @@ class MainWindow(QMainWindow):
                     self.s11_plot_label, self.last_simulation_dir / "multiband_results.png"
                 )
                 self._show_multiband_metrics(self.last_simulation_dir / "multiband_metrics.json")
-                self.radiation_plot_label.setVisible(False)
+                radiation_path = self.last_simulation_dir / "radiation_plot.png"
+                self.radiation_plot_label.setVisible(radiation_path.is_file())
+                if radiation_path.is_file():
+                    self._load_result_plot(self.radiation_plot_label, radiation_path)
                 self.results_status.setText(
                     f"Broadband post-processing complete. Report files saved in: {self.last_simulation_dir}"
                 )
