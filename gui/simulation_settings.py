@@ -94,7 +94,7 @@ def format_simulation_settings(yaml_text: str) -> str:
         decay_text = f"legacy linear threshold {settings['legacy_end_criteria']:g}"
     return (
         f"Frequency: {frequency_text} GHz    |    "
-        f"Frequency points: {settings['n_pts']}\\n"
+        f"Frequency points: {settings['n_pts']}\n"
         f"Energy decay: {decay_text}    |    "
         f"Maximum timesteps: {settings['max_timesteps']}"
     )
