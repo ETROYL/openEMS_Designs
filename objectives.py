@@ -76,9 +76,9 @@ def minimize_s11_in_band(sim_results, f_min=None, f_max=None):
 
 def maximize_impedance_smoothness(sim_results, f_min=None, f_max=None):
     """
-    Objective 2: Maximizes smoothness of Re(Z_in) by minimizing the 
+    Maximizes smoothness of Re(Z_in) by minimizing the 
     variance of its frequency derivative d(Re(Z_in))/df.
-    Evaluates across the full simulation spectrum if f_min/f_max are None.
+    Evaluates across the full spectrum if f_min/f_max are None.
     """
     freq = sim_results['freq']
     z_in = sim_results['z_in']
@@ -95,8 +95,9 @@ def maximize_impedance_smoothness(sim_results, f_min=None, f_max=None):
     # Derivative wrt frequency
     # dr_df = np.gradient(r_in)
     
-    # Smoothness cost = variance of derivative
-    return int(np.std(absZin))
+    # Smoothness cost = standard deviation of impedance magnitude
+    # Preserve fractional precision so close candidates remain distinguishable.
+    return float(np.std(absZin))
 
 
 def multi_objective_combined(
