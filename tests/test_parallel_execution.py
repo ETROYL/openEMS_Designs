@@ -21,17 +21,16 @@ class ParallelWorkerInitializationTests(unittest.TestCase):
                     {"fstart": 0.1, "fstop": 1.0},
                     "/run/characterization.json",
                 )
-
-        self.assertEqual(os.environ["EM_THREADS"], "3")
-        self.assertEqual(os.environ["OMP_NUM_THREADS"], "3")
-        create_evaluator.assert_called_once()
-        kwargs = create_evaluator.call_args.kwargs
-        self.assertEqual(kwargs["evaluation_settings"], {
-            "fstart": 0.1, "fstop": 1.0,
-        })
-        self.assertEqual(
-            kwargs["interval_plan_path"], "/run/characterization.json"
-        )
+                self.assertEqual(os.environ["EM_THREADS"], "3")
+                self.assertEqual(os.environ["OMP_NUM_THREADS"], "3")
+                create_evaluator.assert_called_once()
+                kwargs = create_evaluator.call_args.kwargs
+                self.assertEqual(kwargs["evaluation_settings"], {
+                    "fstart": 0.1, "fstop": 1.0,
+                })
+                self.assertEqual(
+                    kwargs["interval_plan_path"], "/run/characterization.json"
+                )
 
 
 if __name__ == "__main__":
