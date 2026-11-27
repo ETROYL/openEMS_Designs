@@ -5,6 +5,8 @@ import hashlib
 import importlib.util
 import json
 import math
+import os
+import tempfile
 from dataclasses import asdict
 from pathlib import Path
 from typing import Callable, Iterable, Any
@@ -250,14 +252,25 @@ def _interval_plan_fingerprint(
         source_path = Path(spec.origin).resolve() if spec and spec.origin else None
         if source_path is None or not source_path.is_file():
             return None
-        design_digest = hashlib.sha256(source_path.read_bytes()).hexdigest()
+        source_files = {
+            "design": source_path,
+            "characterization": Path(__file__).resolve(),
+            "planner": Path(__file__).with_name("planner.py").resolve(),
+            "engine": Path(__file__).with_name("engine.py").resolve(),
+        }
+        if any(not path.is_file() for path in source_files.values()):
+            return None
+        source_digests = {
+            name: hashlib.sha256(path.read_bytes()).hexdigest()
+            for name, path in source_files.items()
+        }
     except (ImportError, OSError, ValueError):
         return None
 
     payload = {
-        "cache_schema": 1,
+        "cache_schema": 2,
         "config_sha256": hashlib.sha256(config.read_bytes()).hexdigest(),
-        "design_source_sha256": design_digest,
+        "source_sha256": source_digests,
         "frequency_range_ghz": list(map(float, frequency_range_ghz)),
         "interval_widths_ghz": sorted(set(map(float, interval_widths_ghz))),
         "boundary_step_ghz": float(boundary_step_ghz),
@@ -333,9 +346,22 @@ def _store_cached_interval_plan(cache_path: Path, manifest: dict[str, Any]) -> N
     cache_path.parent.mkdir(parents=True, exist_ok=True)
     payload = dict(manifest)
     payload["cache_fingerprint"] = cache_path.stem
-    temporary = cache_path.with_suffix(".tmp")
-    temporary.write_text(json.dumps(payload, indent=2), encoding="utf-8")
-    temporary.replace(cache_path)
+    temporary_path = None
+    try:
+        with tempfile.NamedTemporaryFile(
+            mode="w",
+            encoding="utf-8",
+            dir=cache_path.parent,
+            prefix=f".{cache_path.stem}.",
+            suffix=".tmp",
+            delete=False,
+        ) as stream:
+            json.dump(payload, stream, indent=2)
+            temporary_path = Path(stream.name)
+        os.replace(temporary_path, cache_path)
+    finally:
+        if temporary_path is not None and temporary_path.exists():
+            temporary_path.unlink()
 
 
 
