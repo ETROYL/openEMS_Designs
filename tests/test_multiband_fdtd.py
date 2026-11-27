@@ -7,13 +7,43 @@ from unittest.mock import patch
 import numpy as np
 
 from multiband_fdtd.engine import (
-    BandResult, FrequencyBand, reconstruct_response, run_multiband_auto,
+    BandResult, FrequencyBand, reconstruct_response, run_multiband,
+    run_multiband_auto,
 )
 from multiband_fdtd.planner import BandCost, select_fastest_band_sequence
 from multiband_fdtd.characterization import (
     characterize_frequency_intervals, generate_candidate_bands,
     characterize_and_select_intervals,
 )
+
+
+
+class ActiveVariableTests(unittest.TestCase):
+    @patch("multiband_fdtd.engine._run_band")
+    def test_forwards_candidate_variables_to_every_band(self, run_band):
+        with tempfile.TemporaryDirectory() as temp:
+            config = Path(temp) / "design.yaml"
+            config.write_text("variables: {}\\n", encoding="utf-8")
+            frequencies = np.linspace(0.1e9, 1.0e9, 2)
+            run_band.return_value = BandResult(
+                FrequencyBand(0.1, 1.0, 2),
+                frequencies,
+                np.array([0.2 + 0j, 0.3 + 0j]),
+                np.array([50.0 + 0j, 55.0 + 0j]),
+                1.0, 1000, "mock",
+            )
+            active_vars = {"arm_length": 0.042}
+            run_multiband(
+                config,
+                Path(temp) / "run",
+                [FrequencyBand(0.1, 1.0, 2)],
+                profile="optimization",
+                active_vars=active_vars,
+            )
+            run_band.assert_called_once()
+            self.assertEqual(
+                run_band.call_args.kwargs["active_vars"], active_vars
+            )
 
 
 class MultiBandPlannerTests(unittest.TestCase):
