@@ -100,13 +100,13 @@ class CandidateEvaluatorTests(unittest.TestCase):
 
         with open(self.config_path, "w", encoding="utf-8") as stream:
             stream.write(
-                "variables: {}\\n"
-                "simulation:\\n"
-                "  fstart: 0.1\\n"
-                "  fstop: 1.0\\n"
-                "  n_pts: 101\\n"
-                "  end_criteria_db: -18.0\\n"
-                "  max_timesteps: 25000\\n"
+                "variables: {}\n"
+                "simulation:\n"
+                "  fstart: 0.1\n"
+                "  fstop: 1.0\n"
+                "  n_pts: 101\n"
+                "  end_criteria_db: -18.0\n"
+                "  max_timesteps: 25000\n"
             )
         plan_path = os.path.join(self.temp_dir.name, "characterization.json")
         with open(plan_path, "w", encoding="utf-8") as stream:
