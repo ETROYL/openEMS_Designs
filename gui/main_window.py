@@ -1383,14 +1383,9 @@ class MainWindow(QMainWindow):
         )
 
     def _simulation_settings(self) -> str:
-        cfg = yaml.safe_load(self.editor.toPlainText()) or {}
-        sim = cfg.get("simulation", {})
-        return (
-            f"Frequency: {sim.get('fstart', '—')}–{sim.get('fstop', '—')} GHz    |    "
-            f"Frequency points: {sim.get('n_pts', 301)}\n"
-            f"Energy decay: {str(sim.get('end_criteria_db')) + ' dB' if 'end_criteria_db' in sim else 'legacy linear threshold ' + str(sim.get('end_criteria', 1e-4))}    |    "
-            f"Maximum timesteps: {sim.get('max_timesteps', 500000)}"
-        )
+        from gui.simulation_settings import format_simulation_settings
+
+        return format_simulation_settings(self.editor.toPlainText())
 
     def _update_simulation_settings(self) -> None:
         """Refresh the Simulation tab from the current valid YAML editor contents."""
