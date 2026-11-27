@@ -39,8 +39,8 @@ class MainWindow(QMainWindow):
         screen = self.screen() or QGuiApplication.primaryScreen()
         if screen is not None:
             available = screen.availableGeometry()
-            window_width = min(1180, max(640, available.width() - 24))
-            window_height = min(780, max(480, available.height() - 24))
+            window_width = min(1180, max(320, available.width() - 24))
+            window_height = min(780, max(320, available.height() - 24))
             self.setMinimumSize(min(640, window_width), min(480, window_height))
             self.resize(window_width, window_height)
             self.move(
