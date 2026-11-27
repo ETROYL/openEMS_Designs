@@ -1,8 +1,4 @@
-"""Post-process reconstructed broadband response data for the desktop GUI.
-
-This module consumes the standard CSV written by the multi-band simulation
-runner. It does not rerun FDTD or inspect individual band recordings.
-"""
+"""Post-process broadband response and recorded far-field data."""
 from __future__ import annotations
 
 import argparse
@@ -18,27 +14,7 @@ _REQUIRED_COLUMNS = (
 )
 
 
-def _threshold_ranges(frequency: np.ndarray, s11_db: np.ndarray,
-                      threshold_db: float) -> list[dict[str, float]]:
-    """Return contiguous frequency ranges meeting an S11 threshold."""
-    mask = s11_db <= threshold_db
-    if not np.any(mask):
-        return []
-    edges = np.diff(np.r_[False, mask, False].astype(int))
-    starts = np.flatnonzero(edges == 1)
-    stops = np.flatnonzero(edges == -1) - 1
-    ranges = []
-    for start, stop in zip(starts, stops):
-        ranges.append({
-            "start_ghz": float(frequency[start]),
-            "stop_ghz": float(frequency[stop]),
-            "bandwidth_ghz": float(frequency[stop] - frequency[start]),
-        })
-    return ranges
-
-
-def analyze_broadband_csv(csv_path: str | Path) -> dict:
-    """Load reconstructed response and calculate antenna performance metrics."""
+def _load_response(csv_path: str | Path) -> dict[str, np.ndarray]:
     csv_path = Path(csv_path)
     if not csv_path.is_file():
         raise FileNotFoundError(f"Broadband response CSV not found: {csv_path}")
@@ -54,27 +30,46 @@ def analyze_broadband_csv(csv_path: str | Path) -> dict:
         raise ValueError("Broadband response CSV is missing columns: " + ", ".join(missing))
     if data.size < 2:
         raise ValueError("Broadband response CSV must contain at least two data rows.")
-
-    frequency = np.atleast_1d(data["frequency_GHz"]).astype(float)
-    s11_db = np.atleast_1d(data["s11_smoothed_dB"]).astype(float)
-    z_real = np.atleast_1d(data["z_in_smoothed_real"]).astype(float)
-    z_imag = np.atleast_1d(data["z_in_smoothed_imag"]).astype(float)
-    if not all(np.all(np.isfinite(v)) for v in (frequency, s11_db, z_real, z_imag)):
+    values = {
+        "frequency_ghz": np.atleast_1d(data["frequency_GHz"]).astype(float),
+        "s11_db": np.atleast_1d(data["s11_smoothed_dB"]).astype(float),
+        "z_real": np.atleast_1d(data["z_in_smoothed_real"]).astype(float),
+        "z_imag": np.atleast_1d(data["z_in_smoothed_imag"]).astype(float),
+    }
+    if not all(np.all(np.isfinite(v)) for v in values.values()):
         raise ValueError("Broadband response contains non-finite values.")
-    if np.any(np.diff(frequency) <= 0):
+    if np.any(np.diff(values["frequency_ghz"]) <= 0):
         raise ValueError("Frequency samples must be strictly increasing.")
+    return values
 
+
+def _threshold_ranges(frequency: np.ndarray, s11_db: np.ndarray,
+                      threshold_db: float) -> list[dict[str, float]]:
+    mask = s11_db <= threshold_db
+    if not np.any(mask):
+        return []
+    edges = np.diff(np.r_[False, mask, False].astype(int))
+    starts = np.flatnonzero(edges == 1)
+    stops = np.flatnonzero(edges == -1) - 1
+    return [{
+        "start_ghz": float(frequency[start]),
+        "stop_ghz": float(frequency[stop]),
+        "bandwidth_ghz": float(frequency[stop] - frequency[start]),
+    } for start, stop in zip(starts, stops)]
+
+
+def analyze_broadband_csv(csv_path: str | Path) -> dict:
+    """Calculate matching metrics from the reconstructed complex response."""
+    data = _load_response(csv_path)
+    frequency, s11_db = data["frequency_ghz"], data["s11_db"]
     minimum_index = int(np.argmin(s11_db))
     s11_linear = 10.0 ** (s11_db / 20.0)
     vswr = (1.0 + s11_linear) / np.maximum(1.0 - s11_linear, 1e-12)
-
-    # Report distinct local minima, ranked by return loss.
     minima = np.flatnonzero(
         (s11_db[1:-1] <= s11_db[:-2]) &
         (s11_db[1:-1] < s11_db[2:])
     ) + 1
     minima = sorted(minima.tolist(), key=lambda i: float(s11_db[i]))[:10]
-
     result = {
         "sample_count": int(frequency.size),
         "frequency_start_ghz": float(frequency[0]),
@@ -83,8 +78,8 @@ def analyze_broadband_csv(csv_path: str | Path) -> dict:
         "minimum_s11_frequency_ghz": float(frequency[minimum_index]),
         "vswr_at_minimum_s11": float(vswr[minimum_index]),
         "impedance_at_minimum_s11_ohm": {
-            "real": float(z_real[minimum_index]),
-            "imag": float(z_imag[minimum_index]),
+            "real": float(data["z_real"][minimum_index]),
+            "imag": float(data["z_imag"][minimum_index]),
         },
         "bands_below_minus_10_db": _threshold_ranges(frequency, s11_db, -10.0),
         "bands_below_minus_20_db": _threshold_ranges(frequency, s11_db, -20.0),
@@ -103,57 +98,253 @@ def analyze_broadband_csv(csv_path: str | Path) -> dict:
 
 
 def create_results_plot(csv_path: str | Path, output_path: str | Path) -> None:
-    """Create a readable full-width S11 and impedance report plot."""
+    """Create the full-width matching, VSWR and impedance figure."""
     import matplotlib
     matplotlib.use("Agg")
     import matplotlib.pyplot as plt
 
-    data = np.genfromtxt(csv_path, delimiter=",", names=True, dtype=float,
-                         encoding="utf-8")
-    frequency = np.atleast_1d(data["frequency_GHz"])
-    s11_db = np.atleast_1d(data["s11_smoothed_dB"])
-    z_real = np.atleast_1d(data["z_in_smoothed_real"])
-    z_imag = np.atleast_1d(data["z_in_smoothed_imag"])
-
-    figure, (s11_axis, impedance_axis) = plt.subplots(
-        2, 1, figsize=(13, 8), sharex=True
-    )
-    s11_axis.plot(frequency, s11_db, linewidth=1.5, label="S11")
-    s11_axis.axhline(-10.0, linestyle="--", linewidth=1.0, label="-10 dB")
-    s11_axis.axhline(-20.0, linestyle=":", linewidth=1.0, label="-20 dB")
-    s11_axis.set_ylabel("S11 (dB)")
-    s11_axis.set_title("Broadband antenna response")
-    s11_axis.grid(True, alpha=0.3)
-    s11_axis.legend(loc="best")
-    impedance_axis.plot(frequency, z_real, label="Real(Z)")
-    impedance_axis.plot(frequency, z_imag, label="Imag(Z)")
-    impedance_axis.set_xlabel("Frequency (GHz)")
-    impedance_axis.set_ylabel("Input impedance (Ω)")
-    impedance_axis.grid(True, alpha=0.3)
-    impedance_axis.legend(loc="best")
+    data = _load_response(csv_path)
+    frequency = data["frequency_ghz"]
+    s11_linear = 10.0 ** (data["s11_db"] / 20.0)
+    vswr = (1.0 + s11_linear) / np.maximum(1.0 - s11_linear, 1e-12)
+    figure, axes = plt.subplots(2, 2, figsize=(14, 9), sharex=True)
+    axes[0, 0].plot(frequency, data["s11_db"], linewidth=1.5)
+    axes[0, 0].axhline(-10.0, linestyle="--", linewidth=1.0, label="-10 dB")
+    axes[0, 0].axhline(-20.0, linestyle=":", linewidth=1.0, label="-20 dB")
+    axes[0, 0].set_ylabel("S11 (dB)")
+    axes[0, 0].set_title("Return loss")
+    axes[0, 0].legend()
+    axes[0, 1].plot(frequency, vswr, linewidth=1.5)
+    axes[0, 1].axhline(2.0, linestyle="--", linewidth=1.0, label="VSWR 2")
+    axes[0, 1].set_ylabel("VSWR")
+    axes[0, 1].set_title("Voltage standing-wave ratio")
+    axes[0, 1].legend()
+    axes[1, 0].plot(frequency, data["z_real"], label="Real(Z)")
+    axes[1, 0].set_ylabel("Resistance (Ω)")
+    axes[1, 0].set_xlabel("Frequency (GHz)")
+    axes[1, 0].set_title("Input resistance")
+    axes[1, 0].legend()
+    axes[1, 1].plot(frequency, data["z_imag"], label="Imag(Z)")
+    axes[1, 1].axhline(0.0, linestyle="--", linewidth=1.0)
+    axes[1, 1].set_ylabel("Reactance (Ω)")
+    axes[1, 1].set_xlabel("Frequency (GHz)")
+    axes[1, 1].set_title("Input reactance")
+    axes[1, 1].legend()
+    for axis in axes.flat:
+        axis.grid(True, alpha=0.3)
     figure.tight_layout()
-    output_path = Path(output_path)
-    figure.savefig(output_path, dpi=200, bbox_inches="tight")
+    figure.savefig(output_path, dpi=190, bbox_inches="tight")
     plt.close(figure)
 
 
-def process_results(csv_path: str | Path, output_dir: str | Path) -> dict:
-    """Generate the metrics JSON and detailed plot from reconstructed CSV."""
+def _build_nf2ff_for_band(band_dir: Path):
+    """Recreate the NF2FF object using the exact saved band configuration."""
+    from CSXCAD import ContinuousStructure
+    from openEMS import openEMS
+    from design import build_design, load_config
+
+    config_path = band_dir / "design.yaml"
+    if not config_path.is_file():
+        raise FileNotFoundError(f"Band design snapshot is missing: {config_path}")
+    cfg = load_config(str(config_path))
+    simulation = cfg.get("simulation") or {}
+    fstart = float(simulation["fstart"]) * 1e9
+    fstop = float(simulation["fstop"]) * 1e9
+    end_criteria = float(simulation.get("end_criteria", 1e-4))
+    max_timesteps = int(simulation.get("max_timesteps", 1000000))
+    csx = ContinuousStructure()
+    fdtd = openEMS(EndCriteria=end_criteria, NrTS=max_timesteps)
+    fdtd.SetCSX(csx)
+    fdtd.SetGaussExcite(0.5 * (fstart + fstop), fstop - fstart)
+    fdtd.SetBoundaryCond(["PML_8"] * 6)
+    _port, nf2ff = build_design(
+        csx, fdtd, config_file=str(config_path), enable_nf2ff=True
+    )
+    if nf2ff is None:
+        raise RuntimeError(f"Could not recreate NF2FF box for {band_dir}")
+    return nf2ff
+
+
+def calculate_far_field(csv_path: str | Path, simulation_dir: str | Path,
+                         output_dir: str | Path) -> dict:
+    """Evaluate far-field patterns and antenna metrics from recorded band fields."""
+    from functools import lru_cache
+    from multiband_fdtd.engine import FrequencyBand
+
+    simulation_dir = Path(simulation_dir).resolve()
+    output_dir = Path(output_dir).resolve()
+    manifest_path = simulation_dir / "multiband_run.json"
+    if not manifest_path.is_file():
+        raise FileNotFoundError(f"Multi-band run manifest not found: {manifest_path}")
+    manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+    if not manifest.get("far_field_recorded", False):
+        raise RuntimeError(
+            "This simulation was not recorded for far-field analysis. "
+            "Run a new accurate simulation with far-field recording enabled."
+        )
+    band_defs = manifest.get("bands") or []
+    band_runs = manifest.get("band_results") or []
+    if not band_defs or len(band_defs) != len(band_runs):
+        raise ValueError("The run manifest does not contain matching band definitions and outputs.")
+
+    bands = []
+    for definition, run in zip(band_defs, band_runs):
+        band_dir = Path(run["output_dir"])
+        if not band_dir.is_absolute():
+            band_dir = simulation_dir / band_dir
+        metadata_path = band_dir / "band_metadata.json"
+        if not metadata_path.is_file():
+            raise FileNotFoundError(f"Band metadata not found: {metadata_path}")
+        metadata = json.loads(metadata_path.read_text(encoding="utf-8"))
+        if not metadata.get("far_field_recorded", False):
+            raise RuntimeError(f"Far-field data was not recorded for {band_dir}")
+        bands.append((float(definition["fstart_ghz"]),
+                      float(definition["fstop_ghz"]), band_dir))
+
+    def band_for(frequency_ghz: float):
+        matches = [item for item in bands
+                   if item[0] - 1e-9 <= frequency_ghz <= item[1] + 1e-9]
+        if not matches:
+            raise ValueError(f"No recorded simulation band covers {frequency_ghz:g} GHz.")
+        return matches[0]
+
+    cache: dict[Path, object] = {}
+    def nf2ff_for(band_dir: Path):
+        if band_dir not in cache:
+            print(f"Preparing far-field extraction for {band_dir.name}…", flush=True)
+            cache[band_dir] = _build_nf2ff_for_band(band_dir)
+        return cache[band_dir]
+
+    response = _load_response(csv_path)
+    freq_ghz = response["frequency_ghz"]
+    s11_db = response["s11_db"]
+    s11_linear = 10.0 ** (s11_db / 20.0)
+    s11_complex = np.interp(freq_ghz, freq_ghz, s11_linear)  # magnitude for mismatch efficiency
+    minimum_index = int(np.argmin(s11_db))
+    resonance_ghz = float(freq_ghz[minimum_index])
+    theta = np.linspace(-180.0, 180.0, 361)
+    phi = [0.0, 90.0]
+    eval_freqs_ghz = np.linspace(float(freq_ghz[0]), float(freq_ghz[-1]), 21)
+    directivity, realized_gain, total_efficiency = [], [], []
+    pattern_result = None
+
+    for index, frequency_ghz in enumerate(eval_freqs_ghz, start=1):
+        band_dir = band_for(float(frequency_ghz))[2]
+        nf2ff = nf2ff_for(band_dir)
+        result = nf2ff.CalcNF2FF(
+            str(band_dir), float(frequency_ghz) * 1e9, theta, phi
+        )
+        dmax = float(result.Dmax[0])
+        dmax_dbi = 10.0 * np.log10(max(dmax, 1e-12))
+        s11_mag = float(np.interp(frequency_ghz, freq_ghz, s11_linear))
+        mismatch_efficiency = max(0.0, 1.0 - s11_mag ** 2)
+        # PEC-only model: radiation efficiency is an explicit idealized assumption.
+        realized = dmax_dbi + 10.0 * np.log10(max(mismatch_efficiency, 1e-12))
+        directivity.append(dmax_dbi)
+        realized_gain.append(realized)
+        total_efficiency.append(100.0 * mismatch_efficiency)
+        print(f"Far-field {index}/21: {frequency_ghz:.4f} GHz, "
+              f"directivity {dmax_dbi:.2f} dBi", flush=True)
+        if abs(float(frequency_ghz) - resonance_ghz) <= (
+            float(freq_ghz[-1] - freq_ghz[0]) / 40.0
+        ):
+            pattern_result = result
+
+    if pattern_result is None:
+        band_dir = band_for(resonance_ghz)[2]
+        pattern_result = nf2ff_for(band_dir).CalcNF2FF(
+            str(band_dir), resonance_ghz * 1e9, theta, phi
+        )
+
+    import matplotlib
+    matplotlib.use("Agg")
+    import matplotlib.pyplot as plt
+
+    e_norm = np.asarray(pattern_result.E_norm[0])
+    e_db = 20.0 * np.log10(e_norm / max(float(np.max(e_norm)), 1e-15) + 1e-12)
+    figure = plt.figure(figsize=(14, 10))
+    polar = figure.add_subplot(221, projection="polar")
+    theta_rad = np.deg2rad(theta)
+    polar.plot(theta_rad, e_db[:, 0], linewidth=1.8, label="E-plane (phi=0°)")
+    polar.plot(theta_rad, e_db[:, 1], linestyle="--", linewidth=1.8, label="H-plane (phi=90°)")
+    polar.set_rmin(-30)
+    polar.set_rmax(0)
+    polar.set_title(f"Radiation pattern at {resonance_ghz:.4g} GHz (normalized dB)")
+    polar.legend(loc="lower right", fontsize="small")
+
+    eval_x = eval_freqs_ghz
+    ax = figure.add_subplot(222)
+    ax.plot(eval_x, directivity, "o-", linewidth=1.6)
+    ax.set_title("Peak directivity")
+    ax.set_ylabel("Directivity (dBi)")
+    ax.set_xlabel("Frequency (GHz)")
+    ax.grid(True, alpha=0.3)
+
+    ax = figure.add_subplot(223)
+    ax.plot(eval_x, realized_gain, "s-", linewidth=1.6)
+    ax.set_title("Realized gain (ideal PEC model)")
+    ax.set_ylabel("Realized gain (dBi)")
+    ax.set_xlabel("Frequency (GHz)")
+    ax.grid(True, alpha=0.3)
+
+    ax = figure.add_subplot(224)
+    ax.plot(eval_x, np.full(len(eval_x), 100.0), "--",
+            label="Assumed radiation efficiency (PEC)")
+    ax.plot(eval_x, total_efficiency, "^-", label="Total efficiency incl. mismatch")
+    ax.set_title("Efficiency")
+    ax.set_ylabel("Efficiency (%)")
+    ax.set_xlabel("Frequency (GHz)")
+    ax.set_ylim(0, 105)
+    ax.legend(fontsize="small")
+    ax.grid(True, alpha=0.3)
+    figure.tight_layout()
+    radiation_plot = output_dir / "radiation_plot.png"
+    figure.savefig(radiation_plot, dpi=190, bbox_inches="tight")
+    plt.close(figure)
+
+    metrics = {
+        "radiation_efficiency_percent": 100.0,
+        "radiation_efficiency_status": "assumed_ideal_lossless_PEC",
+        "frequency_ghz": [float(x) for x in eval_freqs_ghz],
+        "directivity_dbi": [float(x) for x in directivity],
+        "realized_gain_dbi": [float(x) for x in realized_gain],
+        "total_efficiency_percent": [float(x) for x in total_efficiency],
+        "radiation_pattern_frequency_ghz": resonance_ghz,
+        "radiation_plot": str(radiation_plot),
+    }
+    metrics_path = output_dir / "far_field_metrics.json"
+    metrics_path.write_text(json.dumps(metrics, indent=2), encoding="utf-8")
+    print(f"Saved radiation and far-field plot: {radiation_plot}", flush=True)
+    print(
+        "Radiation efficiency is assumed to be 100% for ideal PEC; "
+        "conductor and dielectric losses are not modeled.",
+        flush=True,
+    )
+    return metrics
+
+
+def process_results(csv_path: str | Path, output_dir: str | Path,
+                    simulation_dir: str | Path | None = None) -> dict:
+    """Generate matching plots and, when recordings exist, far-field results."""
     output_dir = Path(output_dir)
     output_dir.mkdir(parents=True, exist_ok=True)
     metrics = analyze_broadband_csv(csv_path)
     create_results_plot(csv_path, output_dir / "multiband_results.png")
     metrics_path = output_dir / "multiband_metrics.json"
     metrics_path.write_text(json.dumps(metrics, indent=2), encoding="utf-8")
+    if simulation_dir is not None:
+        far_field = calculate_far_field(csv_path, simulation_dir, output_dir)
+        metrics["far_field"] = far_field
     return metrics
 
 
 def main() -> int:
-    parser = argparse.ArgumentParser(description="Analyze reconstructed broadband antenna results.")
+    parser = argparse.ArgumentParser(description="Analyze broadband antenna simulation results.")
     parser.add_argument("--csv", required=True, help="Path to broadband_response.csv")
     parser.add_argument("--output-dir", required=True, help="Directory for report outputs")
+    parser.add_argument("--simulation-dir", help="Multi-band simulation directory containing band recordings")
     args = parser.parse_args()
-    metrics = process_results(args.csv, args.output_dir)
+    metrics = process_results(args.csv, args.output_dir, args.simulation_dir)
     print(f"Analyzed {metrics['sample_count']} frequency samples.", flush=True)
     print(f"Minimum S11: {metrics['minimum_s11_db']:.2f} dB at "
           f"{metrics['minimum_s11_frequency_ghz']:.6g} GHz", flush=True)
@@ -161,8 +352,9 @@ def main() -> int:
           f"{metrics['total_bandwidth_below_minus_10_db_ghz']:.4g} GHz", flush=True)
     print(f"-20 dB total bandwidth: "
           f"{metrics['total_bandwidth_below_minus_20_db_ghz']:.4g} GHz", flush=True)
-    print(f"Saved report plot: {Path(args.output_dir) / 'multiband_results.png'}", flush=True)
-    print(f"Saved metrics: {Path(args.output_dir) / 'multiband_metrics.json'}", flush=True)
+    if metrics.get("far_field"):
+        print("Full far-field analysis completed.", flush=True)
+    print(f"Saved matching report: {Path(args.output_dir) / 'multiband_results.png'}", flush=True)
     return 0
 
 
