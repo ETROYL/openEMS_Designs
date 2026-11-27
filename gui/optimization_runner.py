@@ -29,6 +29,7 @@ def _prepare_interval_plan(
     run_settings: dict,
     frequency_range: tuple[float, float],
     output_points: int,
+    stop_requested=None,
 ):
     """Load an existing frozen plan or prepare it once for a new run."""
     from multiband_fdtd import (
@@ -67,6 +68,7 @@ def _prepare_interval_plan(
         config_path=config_path,
         output_dir=preparation_dir,
         frequency_range_ghz=frequency_range,
+        stop_requested=stop_requested,
     )
     plan_path = str(Path(plan["manifest_path"]).resolve())
     run_settings["interval_plan_path"] = plan_path
@@ -149,9 +151,19 @@ def main() -> int:
             "or loading the saved plan.",
             flush=True,
         )
-        interval_plan_path, fixed_bands, created_plan = _prepare_interval_plan(
-            config_path, run_dir, run_settings, frequency_range, output_points
-        )
+        try:
+            interval_plan_path, fixed_bands, created_plan = _prepare_interval_plan(
+                config_path, run_dir, run_settings, frequency_range, output_points,
+                stop_requested=lambda: stop_file.exists() or pause_file.exists(),
+            )
+        except InterruptedError:
+            if pause_file.exists() and not stop_file.exists():
+                print("OPTIMIZATION_PAUSED=1", flush=True)
+                return 0
+            if stop_file.exists():
+                print("OPTIMIZATION_STOPPED=1", flush=True)
+                return 0
+            raise
         if created_plan:
             print(
                 f"Prepared {len(fixed_bands)} fixed interval(s): "
@@ -164,6 +176,12 @@ def main() -> int:
             print(f"Saved interval plan: {interval_plan_path}", flush=True)
         else:
             print(f"Using saved interval plan: {interval_plan_path}", flush=True)
+        if pause_file.exists() and not stop_file.exists():
+            print("OPTIMIZATION_PAUSED=1", flush=True)
+            return 0
+        if stop_file.exists():
+            print("OPTIMIZATION_STOPPED=1", flush=True)
+            return 0
 
     space = DiscreteParameterSpace.from_config(config)
     if space.dimension == 0:
