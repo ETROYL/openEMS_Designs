@@ -701,25 +701,26 @@ class MainWindow(QMainWindow):
             control.setEnabled(enabled)
 
     def _update_optimization_evaluation_defaults(self) -> None:
-        """Refresh override defaults from the YAML simulation block."""
+        """Refresh override defaults only from a fully valid YAML simulation block."""
         if self.define_optimization_parameters_radio.isChecked():
             return
         try:
-            config = yaml.safe_load(self.editor.toPlainText()) or {}
-            sim = config.get("simulation") or {}
-            self.optimization_fstart.setValue(float(sim.get("fstart", 0.1)))
-            self.optimization_fstop.setValue(float(sim.get("fstop", 1.0)))
-            self.optimization_n_pts.setValue(int(sim.get("n_pts", 301)))
-            if "end_criteria_db" in sim:
-                decay_db = float(sim["end_criteria_db"])
-            else:
-                import math
-                decay_db = 10.0 * math.log10(float(sim.get("end_criteria", 1e-4)))
-            self.optimization_end_criteria_db.setValue(decay_db)
-            self.optimization_max_timesteps.setValue(int(sim.get("max_timesteps", 500000)))
+            from gui.simulation_settings import parse_simulation_settings
+
+            settings = parse_simulation_settings(self.editor.toPlainText())
         except (yaml.YAMLError, AttributeError, TypeError, ValueError, OverflowError):
-            # Keep the last valid defaults while the YAML editor is temporarily incomplete.
-            pass
+            # Keep every control at its last valid value while the editor is invalid.
+            return
+
+        self.optimization_fstart.setValue(
+            0.1 if settings["fstart"] is None else settings["fstart"]
+        )
+        self.optimization_fstop.setValue(
+            1.0 if settings["fstop"] is None else settings["fstop"]
+        )
+        self.optimization_n_pts.setValue(settings["n_pts"])
+        self.optimization_end_criteria_db.setValue(settings["end_criteria_db"])
+        self.optimization_max_timesteps.setValue(settings["max_timesteps"])
 
     def _optimization_evaluation_settings(self) -> dict | None:
         if self.use_simulation_parameters_radio.isChecked():
