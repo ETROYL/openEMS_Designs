@@ -1327,30 +1327,30 @@ class MainWindow(QMainWindow):
 
     def validate_config(self) -> bool:
         try:
-            parsed = yaml.safe_load(self.editor.toPlainText())
-            if not isinstance(parsed, dict):
-                raise ValueError("The YAML root must be a mapping/object.")
-        except (yaml.YAMLError, ValueError) as exc:
-            QMessageBox.warning(self, "Invalid YAML", str(exc))
+            from gui.simulation_settings import parse_simulation_settings
+
+            parse_simulation_settings(self.editor.toPlainText())
+        except (yaml.YAMLError, AttributeError, TypeError, ValueError, OverflowError) as exc:
+            QMessageBox.warning(self, "Invalid YAML or simulation settings", str(exc))
             self.statusBar().showMessage("YAML validation failed")
             return False
         self._update_simulation_settings()
-        self.statusBar().showMessage("YAML syntax and root structure are valid")
+        self.statusBar().showMessage("YAML syntax and simulation settings are valid")
         QMessageBox.information(
             self, "YAML validation",
-            "The YAML is syntactically valid and its root is a mapping. "
+            "The YAML syntax, root structure, and simulation settings are valid. "
             "Detailed electromagnetic design-schema validation will follow.",
         )
         return True
 
     def _current_config_is_valid(self) -> bool:
         try:
-            parsed = yaml.safe_load(self.editor.toPlainText())
-            if not isinstance(parsed, dict):
-                raise ValueError("The YAML root must be a mapping/object.")
+            from gui.simulation_settings import parse_simulation_settings
+
+            parse_simulation_settings(self.editor.toPlainText())
             return True
-        except (yaml.YAMLError, ValueError) as exc:
-            QMessageBox.warning(self, "Invalid YAML", str(exc))
+        except (yaml.YAMLError, AttributeError, TypeError, ValueError, OverflowError) as exc:
+            QMessageBox.warning(self, "Invalid YAML or simulation settings", str(exc))
             return False
 
     def _write_temporary_config(self, prefix: str) -> Path:
