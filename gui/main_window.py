@@ -1779,6 +1779,25 @@ class MainWindow(QMainWindow):
                     if resonances else "No distinct local minima detected"
                 ),
             ]
+            far_field_path = metrics_path.parent / "far_field_metrics.json"
+            if far_field_path.is_file():
+                far_field = json.loads(far_field_path.read_text(encoding="utf-8"))
+                frequencies = far_field["frequency_ghz"]
+                directivity = far_field["directivity_dbi"]
+                gain = far_field["realized_gain_dbi"]
+                total_efficiency = far_field["total_efficiency_percent"]
+                best_dir = max(range(len(directivity)), key=lambda i: directivity[i])
+                best_gain = max(range(len(gain)), key=lambda i: gain[i])
+                resonance_eval = min(
+                    range(len(frequencies)),
+                    key=lambda i: abs(frequencies[i] - metrics["minimum_s11_frequency_ghz"]),
+                )
+                lines.extend([
+                    f"Peak directivity: {directivity[best_dir]:.2f} dBi at {frequencies[best_dir]:.4g} GHz",
+                    f"Peak realized gain: {gain[best_gain]:.2f} dBi at {frequencies[best_gain]:.4g} GHz",
+                    "Radiation efficiency: assumed 100% (ideal lossless PEC model)",
+                    f"Total efficiency at S11 resonance: {total_efficiency[resonance_eval]:.1f}%",
+                ])
             self.results_summary.setText("\n".join(lines))
         except (OSError, ValueError, KeyError, TypeError) as exc:
             self.results_summary.setText(f"Could not load broadband performance metrics: {exc}")
