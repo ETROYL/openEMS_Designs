@@ -583,6 +583,7 @@ class MainWindow(QMainWindow):
         self.radiation_plot_label.setStyleSheet("background: palette(alternate-base); border-radius: 6px;")
 
         plots_widget = QWidget()
+        self.results_plots_widget = plots_widget
         plots_widget.setMinimumHeight(1020)
         plots_layout = QVBoxLayout(plots_widget)
         plots_layout.setContentsMargins(18, 18, 18, 18)
@@ -1570,6 +1571,7 @@ class MainWindow(QMainWindow):
                         except (OSError, ValueError, TypeError):
                             pass
                     self.radiation_plot_label.setVisible(far_field_available)
+                    self.results_plots_widget.setMinimumHeight(1020 if far_field_available else 520)
                     self._load_result_plot(
                         self.s11_plot_label, self.last_simulation_dir / "s11_plot.png"
                     )
@@ -1636,6 +1638,7 @@ class MainWindow(QMainWindow):
             except (OSError, ValueError, TypeError):
                 far_field_available = False
         self.radiation_plot_label.setVisible(far_field_available)
+        self.results_plots_widget.setMinimumHeight(1020 if far_field_available else 520)
         self._load_result_plot(self.s11_plot_label, output_dir / "multiband_results.png")
         radiation_path = output_dir / "radiation_plot.png"
         if far_field_available and radiation_path.is_file():
@@ -1747,6 +1750,7 @@ class MainWindow(QMainWindow):
                 self._show_multiband_metrics(self.last_simulation_dir / "multiband_metrics.json")
                 radiation_path = self.last_simulation_dir / "radiation_plot.png"
                 self.radiation_plot_label.setVisible(radiation_path.is_file())
+                self.results_plots_widget.setMinimumHeight(1020 if radiation_path.is_file() else 520)
                 if radiation_path.is_file():
                     self._load_result_plot(self.radiation_plot_label, radiation_path)
                 self.results_status.setText(
