@@ -50,7 +50,10 @@ def generate_candidate_bands(
     for start in starts:
         for width in widths:
             stop = min(start + width, fmax)
-            if stop - start > 1e-12:
+            if stop - start > 1e-12 and not (
+                math.isclose(start, fmin, rel_tol=0.0, abs_tol=1e-12)
+                and math.isclose(stop, fmax, rel_tol=0.0, abs_tol=1e-12)
+            ):
                 key = (round(start, 12), round(stop, 12))
                 unique[key] = FrequencyBand(start, stop, n_pts)
 
