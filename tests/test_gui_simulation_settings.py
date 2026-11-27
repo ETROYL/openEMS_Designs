@@ -52,6 +52,11 @@ class SimulationSettingsValidationTests(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, "fstart"):
             format_simulation_settings(text)
 
+    def test_optimization_parser_rejects_non_numeric_frequency_typo(self):
+        text = "simulation:\n  fstart: 0f.3\n  fstop: 3.0\n"
+        with self.assertRaisesRegex(ValueError, "fstart"):
+            parse_simulation_settings(text)
+
     def test_rejects_non_increasing_frequency_range(self):
         text = "simulation:\n  fstart: 3.0\n  fstop: 0.1\n"
         with self.assertRaisesRegex(ValueError, "increasing"):
