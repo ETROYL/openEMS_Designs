@@ -548,9 +548,18 @@ class MainWindow(QMainWindow):
         self.results_summary = QLabel("Performance metrics will appear after post-processing.")
         self.results_summary.setWordWrap(True)
         self.results_summary.setTextInteractionFlags(Qt.TextInteractionFlag.TextSelectableByMouse)
+        results_actions = QHBoxLayout()
+        self.open_results_button = QPushButton("Open existing results folder…")
+        self.open_results_button.setToolTip(
+            "Load a previously completed simulation output directory."
+        )
+        self.open_results_button.clicked.connect(self.open_existing_results)
         self.run_postprocess_button = QPushButton("Run post-processing")
         self.run_postprocess_button.setEnabled(False)
         self.run_postprocess_button.clicked.connect(self.start_postprocessing)
+        results_actions.addWidget(self.open_results_button)
+        results_actions.addWidget(self.run_postprocess_button)
+        results_actions.addStretch(1)
         self.results_log = QPlainTextEdit()
         self.results_log.setReadOnly(True)
         self.results_log.setMaximumHeight(150)
@@ -588,7 +597,7 @@ class MainWindow(QMainWindow):
         layout.addWidget(description)
         layout.addWidget(self.results_status)
         layout.addWidget(self.results_summary)
-        layout.addWidget(self.run_postprocess_button)
+        layout.addLayout(results_actions)
         layout.addWidget(self.results_log)
         layout.addWidget(scroll, 1)
         return page
@@ -1576,6 +1585,67 @@ class MainWindow(QMainWindow):
             self._set_simulation_status(f"SIMULATION FAILED — PROCESS EXIT CODE {exit_code}", "failure")
             self.statusBar().showMessage(f"FDTD simulation exited with code {exit_code}")
             self.simulation_log.appendPlainText(f"Simulation process exited with code {exit_code}.")
+
+    def open_existing_results(self) -> None:
+        """Restore a completed multi-band simulation from its output directory."""
+        start_dir = (
+            str(self.last_simulation_dir)
+            if self.last_simulation_dir and self.last_simulation_dir.is_dir()
+            else str(self.current_config.parent if self.current_config else Path.cwd())
+        )
+        selected_dir = QFileDialog.getExistingDirectory(
+            self, "Open existing simulation results", start_dir
+        )
+        if not selected_dir:
+            return
+
+        output_dir = Path(selected_dir).expanduser().resolve()
+        response_csv = output_dir / "broadband_response.csv"
+        config_snapshot = output_dir / "design.yaml"
+        if not response_csv.is_file():
+            QMessageBox.warning(
+                self, "Results not found",
+                "The selected folder does not contain broadband_response.csv."
+            )
+            return
+        if not config_snapshot.is_file():
+            QMessageBox.warning(
+                self, "Design snapshot not found",
+                "The selected folder contains broadband_response.csv but no design.yaml "
+                "snapshot. Select the simulation output folder, not its parent."
+            )
+            return
+
+        self.last_simulation_dir = output_dir
+        self.last_simulation_config = config_snapshot
+        self.last_simulation_multiband = True
+        self.run_postprocess_button.setEnabled(
+            self._postprocess_process.state() == QProcess.ProcessState.NotRunning
+        )
+        self.run_postprocess_button.setToolTip(
+            "Analyze the reconstructed broadband response. Far-field/NF2FF "
+            "processing is not available for this simulation type."
+        )
+        self.radiation_plot_label.setVisible(False)
+        self._load_result_plot(self.s11_plot_label, output_dir / "multiband_results.png")
+        if not (output_dir / "multiband_results.png").is_file():
+            self._load_result_plot(self.s11_plot_label, output_dir / "s11_plot.png")
+
+        metrics_path = output_dir / "multiband_metrics.json"
+        if metrics_path.is_file():
+            self._show_multiband_metrics(metrics_path)
+        else:
+            self.results_summary.setText(
+                "Broadband response found. Run post-processing to calculate "
+                "matching bandwidth, resonances, VSWR and impedance metrics."
+            )
+        self.results_status.setText(
+            f"Loaded existing broadband simulation results: {output_dir}"
+        )
+        self.results_log.appendPlainText(
+            f"Loaded existing results folder: {output_dir}"
+        )
+        self.statusBar().showMessage("Existing simulation results loaded")
 
     def start_postprocessing(self) -> None:
         if self._postprocess_process.state() != QProcess.ProcessState.NotRunning:
