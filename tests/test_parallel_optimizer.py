@@ -98,7 +98,7 @@ class ParallelOptimizerSchedulingTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as temp:
             config = os.path.join(temp, "design.yaml")
             with open(config, "w", encoding="utf-8") as stream:
-                stream.write("variables: {x: {start: 0, stop: 20, step: 1}}\\n")
+                stream.write("variables: {x: {start: 0, stop: 20, step: 1}}\n")
             space = DiscreteParameterSpace({"x": {"start": 0, "stop": 20, "step": 1}})
             evaluator = CandidateEvaluator(
                 config, os.path.join(temp, "runs"), space,
