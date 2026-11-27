@@ -234,9 +234,12 @@ class CandidateEvaluator:
             "config_sha256": config_digest,
             "indices": list(index_tuple),
             "parameters": _stable_value(parameters),
-            "evaluation_settings": _stable_value(self.evaluation_settings),
-            "interval_plan_sha256": self.interval_plan_sha256,
         }
+        # Preserve fingerprints for existing single-band runs. A fixed-plan
+        # run gets an additional identity component so its results cannot be
+        # mixed with a different interval plan.
+        if self.interval_plan_sha256 is not None:
+            identity["interval_plan_sha256"] = self.interval_plan_sha256
         return hashlib.sha256(
             json.dumps(identity, sort_keys=True, separators=(",", ":")).encode("utf-8")
         ).hexdigest()
