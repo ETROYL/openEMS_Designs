@@ -1,3 +1,5 @@
+import hashlib
+import json
 import os
 from unittest.mock import patch
 import tempfile
@@ -65,6 +67,23 @@ class CandidateEvaluatorTests(unittest.TestCase):
         second = evaluator.evaluate((2, 1))
         self.assertEqual(first.fingerprint, second.fingerprint)
         self.assertNotEqual(first.evaluation_dir, second.evaluation_dir)
+
+    def test_standard_fingerprint_keeps_existing_identity_format(self):
+        evaluator = CandidateEvaluator(
+            self.config_path, os.path.join(self.temp_dir.name, "runs"),
+            self.space, lambda *_args: {}, lambda *_args, **_kwargs: 0.0,
+        )
+        with open(self.config_path, "rb") as stream:
+            config_digest = hashlib.sha256(stream.read()).hexdigest()
+        identity = {
+            "config_sha256": config_digest,
+            "indices": [1, 1],
+            "parameters": {"radius": "0.11", "gap": "0.002"},
+        }
+        expected = hashlib.sha256(
+            json.dumps(identity, sort_keys=True, separators=(",", ":")).encode("utf-8")
+        ).hexdigest()
+        self.assertEqual(evaluator.fingerprint((1, 1)), expected)
 
     def test_fingerprint_includes_plan_and_normalizes_empty_settings(self):
         plan_path = os.path.join(self.temp_dir.name, "characterization.json")
