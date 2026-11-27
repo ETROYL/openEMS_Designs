@@ -179,6 +179,7 @@ class DiscreteSurrogateOptimizer:
         progress_callback: Callable[[EvaluationResult, int, int], None] | None = None,
         stop_requested: Callable[[], bool] | None = None,
         evaluation_settings: dict[str, Any] | None = None,
+        interval_plan_path: str | None = None,
     ) -> OptimizationSummary:
         """Evaluate candidate batches in spawned worker processes.
 
@@ -238,6 +239,7 @@ class DiscreteSurrogateOptimizer:
                 dict(objective_weights or {}),
                 int(threads_per_worker),
                 dict(evaluation_settings or {}),
+                interval_plan_path,
             ),
         ) as executor:
             if self.store.count() == 0:
