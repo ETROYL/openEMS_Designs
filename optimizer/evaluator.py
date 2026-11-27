@@ -240,6 +240,7 @@ class CandidateEvaluator:
         # mixed with a different interval plan.
         if self.interval_plan_sha256 is not None:
             identity["interval_plan_sha256"] = self.interval_plan_sha256
+            identity["evaluation_settings"] = _stable_value(self.evaluation_settings)
         return hashlib.sha256(
             json.dumps(identity, sort_keys=True, separators=(",", ":")).encode("utf-8")
         ).hexdigest()
