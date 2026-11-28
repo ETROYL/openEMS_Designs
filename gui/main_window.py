@@ -1579,7 +1579,7 @@ class MainWindow(QMainWindow):
                     self.simulation_log.appendPlainText("Could not parse simulation progress update: " + str(exc))
                 continue
             self.simulation_log.appendPlainText(line)
-            if line.startswith("Building CSXCAD geometry and mesh"):
+            if line.startswith("Building CSXCAD"):
                 self.simulation_stage_label.setText("Stage: building geometry and mesh")
                 self.simulation_progress.setFormat("Building geometry and mesh…")
             elif line.startswith("Starting openEMS FDTD solver"):
