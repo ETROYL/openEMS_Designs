@@ -75,6 +75,11 @@ class BroadbandResultsTests(unittest.TestCase):
             result = process_results(csv_path, output_dir)
             self.assertTrue((output_dir / "multiband_metrics.json").is_file())
             self.assertTrue((output_dir / "multiband_results.png").is_file())
+            self.assertTrue((output_dir / "s11_magnitude_db.png").is_file())
+            self.assertTrue((output_dir / "integrated_overview.png").is_file())
+            catalog = json.loads((output_dir / "plot_catalog.json").read_text())
+            self.assertEqual(catalog[0]["label"], "|S11| magnitude (dB)")
+            self.assertEqual(catalog[1]["label"], "Integrated overview (2×2)")
             self.assertEqual(result["sample_count"], 6)
 
     def test_far_field_analysis_rejects_runs_without_recorded_fields(self):
