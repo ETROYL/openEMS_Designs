@@ -85,6 +85,19 @@ def load_config(config_path, active_vars=None):
         return evaluate_value(cfg, var_dict)
     return cfg
 
+NF2FF_MIN_GRID_LINES = 21
+
+
+def _add_nf2ff_mesh_support_lines(mesh, bounds, minimum_lines=NF2FF_MIN_GRID_LINES):
+    """Ensure each axis has enough mesh lines inside an eight-layer PML."""
+    if minimum_lines < 21:
+        raise ValueError("NF2FF support requires at least 21 grid lines per axis.")
+    for axis, (lower, upper) in zip(("x", "y", "z"), bounds):
+        if not (math.isfinite(lower) and math.isfinite(upper) and lower < upper):
+            raise ValueError(f"Invalid {axis}-axis mesh bounds for NF2FF support.")
+        mesh.AddLine(axis, np.linspace(lower, upper, minimum_lines))
+
+
 def build_design(
     CSX, FDTD, config_file='./bowtie.yaml', active_vars=None,
     enable_nf2ff=True, simulation_profile="simulation", simulation_settings_override=None,
@@ -197,6 +210,14 @@ def build_design(
     mesh.AddLine('y', [y_min, y_max])
     mesh.AddLine('z', [z_min, z_max])
 
+    # openEMS' automatic NF2FF placement excludes the PML cells at both
+    # ends of each axis. A thin antenna dimension (usually z) can otherwise
+    # contain too few grid lines in higher-frequency sub-bands.
+    if enable_nf2ff:
+        _add_nf2ff_mesh_support_lines(
+            mesh, ((x_min, x_max), (y_min, y_max), (z_min, z_max))
+        )
+
     mesh.SmoothMeshLines('x', dl_max, ratio=1.3)
     mesh.SmoothMeshLines('y', dl_max, ratio=1.3)
     mesh.SmoothMeshLines('z', dl_max, ratio=1.3)
@@ -204,6 +225,20 @@ def build_design(
     # 5. Create NF2FF Recording Box
     nf2ff = None
     if enable_nf2ff:
+        line_counts = {
+            axis: len(np.asarray(mesh.GetLines(axis)).reshape(-1))
+            for axis in ("x", "y", "z")
+        }
+        insufficient = {
+            axis: count for axis, count in line_counts.items()
+            if count < NF2FF_MIN_GRID_LINES
+        }
+        if insufficient:
+            raise RuntimeError(
+                "Mesh does not provide enough lines for the NF2FF box "
+                f"with PML_8 boundaries: {insufficient}; "
+                f"at least {NF2FF_MIN_GRID_LINES} lines are required per axis."
+            )
         nf2ff = FDTD.CreateNF2FFBox()
 
     port_ret = ports[0] if len(ports) == 1 else ports
