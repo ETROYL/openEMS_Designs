@@ -426,9 +426,7 @@ def load_interval_plan(
     pilot_points = (generation or {}).get("n_pts", 41)
     if not isinstance(pilot_points, int) or pilot_points < 2:
         raise ValueError("The interval plan has invalid pilot sampling settings.")
-    broadband_step = (
-        (fmax - fmin) / (n_points - 1) if n_points is not None else None
-    )
+    equal_total_points = (generation or {}).get("sampling_mode") == "equal_total_points"
 
     bands = []
     for item in intervals:
@@ -437,10 +435,18 @@ def load_interval_plan(
             high = float(item["fstop_ghz"])
         except (KeyError, TypeError, ValueError) as exc:
             raise ValueError("The interval plan contains an invalid interval.") from exc
-        samples = (
-            max(2, int(math.ceil((high - low) / broadband_step)) + 1)
-            if broadband_step is not None else pilot_points
-        )
+        if equal_total_points:
+            samples = int(item.get("n_pts", 0))
+            if samples < 2:
+                raise ValueError("The deterministic interval plan has invalid point allocation.")
+        else:
+            broadband_step = (
+                (fmax - fmin) / (n_points - 1) if n_points is not None else None
+            )
+            samples = (
+                max(2, int(math.ceil((high - low) / broadband_step)) + 1)
+                if broadband_step is not None else pilot_points
+            )
         band = FrequencyBand(low, high, samples)
         band.validate()
         bands.append(band)
