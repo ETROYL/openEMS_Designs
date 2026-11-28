@@ -338,6 +338,79 @@ def calculate_far_field(csv_path: str | Path, simulation_dir: str | Path,
     return metrics
 
 
+def update_radiation_pattern(
+    csv_path: str | Path,
+    simulation_dir: str | Path,
+    output_dir: str | Path,
+    frequency_ghz: float,
+) -> dict:
+    """Recalculate only the selected far-field cut and refresh the overview."""
+    simulation_dir = Path(simulation_dir).resolve()
+    output_dir = Path(output_dir).resolve()
+    frequency_ghz = float(frequency_ghz)
+    if not np.isfinite(frequency_ghz) or frequency_ghz <= 0:
+        raise ValueError("Radiation-pattern frequency must be a positive finite value.")
+
+    manifest_path = simulation_dir / "multiband_run.json"
+    metrics_path = output_dir / "far_field_metrics.json"
+    if not manifest_path.is_file() or not metrics_path.is_file():
+        raise FileNotFoundError("Far-field run manifest or metrics file is missing.")
+    manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+    if not manifest.get("far_field_recorded", False):
+        raise RuntimeError("Far-field recordings are not available for this simulation.")
+    metrics = json.loads(metrics_path.read_text(encoding="utf-8"))
+
+    band_defs = manifest.get("bands") or []
+    band_runs = manifest.get("band_results") or []
+    if not band_defs or len(band_defs) != len(band_runs):
+        raise ValueError("The run manifest does not contain matching band definitions and outputs.")
+
+    selected_band = None
+    for definition, run in zip(band_defs, band_runs):
+        start = float(definition["fstart_ghz"])
+        stop = float(definition["fstop_ghz"])
+        if start - 1e-9 <= frequency_ghz <= stop + 1e-9:
+            band_dir = Path(run["output_dir"])
+            if not band_dir.is_absolute():
+                band_dir = simulation_dir / band_dir
+            selected_band = band_dir
+            break
+    if selected_band is None:
+        raise ValueError(
+            f"No recorded simulation band covers {frequency_ghz:g} GHz. "
+            f"Available range: {band_defs[0]['fstart_ghz']:g}–"
+            f"{band_defs[-1]['fstop_ghz']:g} GHz."
+        )
+
+    metadata_path = selected_band / "band_metadata.json"
+    if not metadata_path.is_file():
+        raise FileNotFoundError(f"Band metadata not found: {metadata_path}")
+    metadata = json.loads(metadata_path.read_text(encoding="utf-8"))
+    if not metadata.get("far_field_recorded", False):
+        raise RuntimeError(f"Far-field data was not recorded for {selected_band}.")
+
+    print(f"Calculating radiation pattern at {frequency_ghz:.6g} GHz…", flush=True)
+    nf2ff = _build_nf2ff_for_band(selected_band)
+    theta = np.linspace(-180.0, 180.0, 361)
+    result = nf2ff.CalcNF2FF(
+        str(selected_band), frequency_ghz * 1e9, theta, [0.0, 90.0]
+    )
+    e_norm = np.asarray(result.E_norm[0])
+    e_db = 20.0 * np.log10(
+        e_norm / max(float(np.max(e_norm)), 1e-15) + 1e-12
+    )
+    metrics.update({
+        "radiation_pattern_frequency_ghz": frequency_ghz,
+        "radiation_pattern_theta_deg": [float(x) for x in theta],
+        "radiation_pattern_e_plane_db": [float(x) for x in e_db[:, 0]],
+        "radiation_pattern_h_plane_db": [float(x) for x in e_db[:, 1]],
+    })
+    metrics_path.write_text(json.dumps(metrics, indent=2), encoding="utf-8")
+    create_result_plot_set(csv_path, output_dir, metrics)
+    print(f"Updated radiation pattern and 2x4 overview at {frequency_ghz:.6g} GHz.", flush=True)
+    return metrics
+
+
 def process_results(csv_path: str | Path, output_dir: str | Path,
                     simulation_dir: str | Path | None = None) -> dict:
     """Generate matching plots and, when recordings exist, far-field results."""
@@ -600,7 +673,18 @@ def main() -> int:
     parser.add_argument("--csv", required=True, help="Path to broadband_response.csv")
     parser.add_argument("--output-dir", required=True, help="Directory for report outputs")
     parser.add_argument("--simulation-dir", help="Multi-band simulation directory containing band recordings")
+    parser.add_argument("--pattern-frequency", type=float,
+                        help="Update the radiation pattern at this frequency in GHz")
+    parser.add_argument("--pattern-only", action="store_true",
+                        help="Update only the selected radiation pattern and integrated overview")
     args = parser.parse_args()
+    if args.pattern_only:
+        if not args.simulation_dir or args.pattern_frequency is None:
+            parser.error("--pattern-only requires --simulation-dir and --pattern-frequency")
+        update_radiation_pattern(
+            args.csv, args.simulation_dir, args.output_dir, args.pattern_frequency
+        )
+        return 0
     metrics = process_results(args.csv, args.output_dir, args.simulation_dir)
     print(f"Analyzed {metrics['sample_count']} frequency samples.", flush=True)
     print(f"Minimum S11: {metrics['minimum_s11_db']:.2f} dB at "
