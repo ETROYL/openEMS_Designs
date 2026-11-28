@@ -36,6 +36,11 @@ def _load_response(csv_path: str | Path) -> dict[str, np.ndarray]:
         "z_real": np.atleast_1d(data["z_in_smoothed_real"]).astype(float),
         "z_imag": np.atleast_1d(data["z_in_smoothed_imag"]).astype(float),
     }
+    if {"s11_smoothed_real", "s11_smoothed_imag"}.issubset(data.dtype.names):
+        values["s11_complex"] = (
+            np.atleast_1d(data["s11_smoothed_real"]).astype(float)
+            + 1j * np.atleast_1d(data["s11_smoothed_imag"]).astype(float)
+        )
     if not all(np.all(np.isfinite(v)) for v in values.values()):
         raise ValueError("Broadband response contains non-finite values.")
     if np.any(np.diff(values["frequency_ghz"]) <= 0):
@@ -467,6 +472,24 @@ def create_result_plot_set(
                            lambda ax: (ax.plot(frequency, z_imag), ax.set_title("Input reactance"),
                                        ax.set_xlabel("Frequency (GHz)"), ax.set_ylabel("Reactance (Ω)")) )},
     ]
+
+
+    if "s11_complex" in data:
+        phase_deg = np.unwrap(np.angle(data["s11_complex"])) * 180.0 / np.pi
+        phase_path = save_plot(
+            "s11_phase.png",
+            lambda axis: (
+                axis.plot(frequency, phase_deg, linewidth=1.7),
+                axis.set_title("S11 phase"),
+                axis.set_xlabel("Frequency (GHz)"),
+                axis.set_ylabel("Phase (degrees)"),
+            ),
+        )
+        catalog_phase = {
+            "label": "Phase(S11)", "filename": "s11_phase.png",
+            "path": phase_path,
+        }
+        catalog.insert(2, catalog_phase)
 
     far_field = far_field or {}
     for label, key, filename in (
