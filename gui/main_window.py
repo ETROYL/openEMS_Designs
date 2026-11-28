@@ -1754,22 +1754,20 @@ class MainWindow(QMainWindow):
             z = metrics["impedance_at_minimum_s11_ohm"]
             bands10 = metrics["bands_below_minus_10_db"]
             bands20 = metrics["bands_below_minus_20_db"]
-            resonances = metrics["resonances"]
             lines = [
-                f"Frequency range: {metrics['frequency_start_ghz']:.4g}–{metrics['frequency_stop_ghz']:.4g} GHz "
-                f"({metrics['sample_count']} points)",
-                f"Minimum S11: {metrics['minimum_s11_db']:.2f} dB at "
-                f"{metrics['minimum_s11_frequency_ghz']:.5g} GHz",
-                f"VSWR at minimum S11: {metrics['vswr_at_minimum_s11']:.3f}",
-                f"Input impedance there: {z['real']:.2f} {'+' if z['imag'] >= 0 else '−'} "
-                f"{abs(z['imag']):.2f}j Ω",
-                f"Total bandwidth ≤ −10 dB: {metrics['total_bandwidth_below_minus_10_db_ghz']:.4g} GHz "
-                f"({len(bands10)} band(s))",
-                f"Total bandwidth ≤ −20 dB: {metrics['total_bandwidth_below_minus_20_db_ghz']:.4g} GHz "
-                f"({len(bands20)} band(s))",
-                "Resonances: " + (
-                    ", ".join(f"{r['frequency_ghz']:.4g} GHz ({r['s11_db']:.1f} dB)" for r in resonances[:5])
-                    if resonances else "No distinct local minima detected"
+                (
+                    f"{metrics['frequency_start_ghz']:.4g}–{metrics['frequency_stop_ghz']:.4g} GHz "
+                    f"({metrics['sample_count']} pts)  |  "
+                    f"Min |S11|: {metrics['minimum_s11_db']:.2f} dB "
+                    f"@ {metrics['minimum_s11_frequency_ghz']:.4g} GHz  |  "
+                    f"VSWR: {metrics['vswr_at_minimum_s11']:.2f}"
+                ),
+                (
+                    f"Bandwidth: −10 dB {metrics['total_bandwidth_below_minus_10_db_ghz']:.3g} GHz "
+                    f"({len(bands10)} bands)  |  "
+                    f"−20 dB {metrics['total_bandwidth_below_minus_20_db_ghz']:.3g} GHz "
+                    f"({len(bands20)} bands)  |  "
+                    f"Z@min: {z['real']:.1f}{z['imag']:+.1f}j Ω"
                 ),
             ]
             far_field_path = metrics_path.parent / "far_field_metrics.json"
@@ -1778,19 +1776,19 @@ class MainWindow(QMainWindow):
                 frequencies = far_field["frequency_ghz"]
                 directivity = far_field["directivity_dbi"]
                 gain = far_field["realized_gain_dbi"]
-                total_efficiency = far_field["total_efficiency_percent"]
+                efficiency = far_field["total_efficiency_percent"]
                 best_dir = max(range(len(directivity)), key=lambda i: directivity[i])
                 best_gain = max(range(len(gain)), key=lambda i: gain[i])
                 resonance_eval = min(
                     range(len(frequencies)),
                     key=lambda i: abs(frequencies[i] - metrics["minimum_s11_frequency_ghz"]),
                 )
-                lines.extend([
-                    f"Peak directivity: {directivity[best_dir]:.2f} dBi at {frequencies[best_dir]:.4g} GHz",
-                    f"Peak realized gain: {gain[best_gain]:.2f} dBi at {frequencies[best_gain]:.4g} GHz",
-                    "Radiation efficiency: assumed 100% (ideal lossless PEC model)",
-                    f"Total efficiency at S11 resonance: {total_efficiency[resonance_eval]:.1f}%",
-                ])
+                lines.append(
+                    f"Peak directivity {directivity[best_dir]:.1f} dBi  |  "
+                    f"Peak gain {gain[best_gain]:.1f} dBi  |  "
+                    f"Total efficiency at resonance {efficiency[resonance_eval]:.1f}% "
+                    "(radiation efficiency assumed 100% for ideal PEC)"
+                )
             self.results_summary.setText("\n".join(lines))
         except (OSError, ValueError, KeyError, TypeError) as exc:
             self.results_summary.setText(f"Could not load broadband performance metrics: {exc}")
@@ -1812,7 +1810,7 @@ class MainWindow(QMainWindow):
         if not entries:
             for label, filename in (
                 ("|S11| magnitude (dB)", "s11_plot.png"),
-                ("|S11| magnitude (dB)", "multiband_results.png"),
+                ("Integrated overview (legacy)", "multiband_results.png"),
                 ("Integrated overview (2×2)", "integrated_overview.png"),
                 ("Radiation results", "radiation_plot.png"),
             ):
