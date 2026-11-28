@@ -213,7 +213,7 @@ def main() -> int:
         # so all simultaneously active interval pools share one CPU budget.
         threads_per_candidate = band_allocation.total_threads
         args.workers = candidate_workers_for_allocation(band_allocation)
-        args.threads_per_worker = 1
+        args.threads_per_worker = band_allocation.threads_per_worker
         print(
             f"Per-candidate interval allocation: {band_allocation.workers} "
             f"interval worker(s) × {band_allocation.threads_per_worker} "
