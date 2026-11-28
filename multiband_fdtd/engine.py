@@ -419,6 +419,11 @@ def run_multiband(
     )
 
     results: list[BandResult | None] = [None] * len(normalized)
+    total_bands = len(normalized)
+    print("__SIMULATION_PROGRESS__=" + json.dumps({
+        "phase": "intervals", "completed": 0, "total": total_bands,
+        "workers": worker_count,
+    }), flush=True)
     tasks = [
         (
             index, config, root / f"band_{index + 1:02d}", band,
@@ -428,10 +433,20 @@ def run_multiband(
         for index, band in enumerate(normalized)
     ]
 
+    completed_count = 0
     if worker_count == 1:
         for task in tasks:
             index, result = _run_band_task(task)
             results[index] = result
+            completed_count += 1
+            print("__SIMULATION_PROGRESS__=" + json.dumps({
+                "phase": "intervals", "completed": completed_count,
+                "total": total_bands, "workers": worker_count,
+                "interval": index + 1,
+                "fstart_ghz": result.band.fstart_ghz,
+                "fstop_ghz": result.band.fstop_ghz,
+                "runtime_seconds": result.runtime_seconds,
+            }), flush=True)
     else:
         context = multiprocessing.get_context("spawn")
         with ProcessPoolExecutor(max_workers=worker_count, mp_context=context) as executor:
@@ -439,8 +454,21 @@ def run_multiband(
             for future in as_completed(futures):
                 index, result = future.result()
                 results[index] = result
+                completed_count += 1
+                print("__SIMULATION_PROGRESS__=" + json.dumps({
+                    "phase": "intervals", "completed": completed_count,
+                    "total": total_bands, "workers": worker_count,
+                    "interval": index + 1,
+                    "fstart_ghz": result.band.fstart_ghz,
+                    "fstop_ghz": result.band.fstop_ghz,
+                    "runtime_seconds": result.runtime_seconds,
+                }), flush=True)
 
     completed_results = [item for item in results if item is not None]
+    print("__SIMULATION_PROGRESS__=" + json.dumps({
+        "phase": "reconstructing", "completed": total_bands,
+        "total": total_bands, "workers": worker_count,
+    }), flush=True)
     combined = reconstruct_response(
         completed_results, requested, sample_count,
         smoothing_sigma_points=smoothing_sigma_points,
@@ -461,6 +489,10 @@ def run_multiband(
         comments="",
     )
     manifest["total_runtime_seconds"] = sum(item.runtime_seconds for item in completed_results)
+    print("__SIMULATION_PROGRESS__=" + json.dumps({
+        "phase": "complete", "completed": total_bands,
+        "total": total_bands, "workers": worker_count,
+    }), flush=True)
     manifest["band_results"] = [
         {"runtime_seconds": item.runtime_seconds, "mesh_cells": item.cells,
          "output_dir": item.output_dir} for item in completed_results
@@ -676,6 +708,9 @@ def run_multiband_auto(
         raise ValueError("profile must be 'optimization' or 'accurate'.")
     default_db, default_steps, default_points = profiles[profile]
     sample_count = default_points if n_points is None else int(n_points)
+    print("__SIMULATION_PROGRESS__=" + json.dumps({
+        "phase": "planning", "completed": 0, "total": 0,
+    }), flush=True)
     bands = build_equal_width_frequency_bands(
         frequency_range_ghz, sample_count,
         maximum_bandwidth_ghz=maximum_bandwidth_ghz,
