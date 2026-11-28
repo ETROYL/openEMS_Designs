@@ -498,7 +498,7 @@ def create_result_plot_set(
     overview_path = output_dir / "integrated_overview.png"
     figure.savefig(overview_path, dpi=190, bbox_inches="tight")
     plt.close(figure)
-    catalog.append({
+    catalog.insert(1, {
         "label": "Integrated overview (2×2)",
         "filename": "integrated_overview.png",
         "path": str(overview_path),
