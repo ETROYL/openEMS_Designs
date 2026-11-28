@@ -228,10 +228,23 @@ def main() -> int:
             flush=True,
         )
 
-    try:
-        validate_allocation(args.workers, args.threads_per_worker)
-    except ValueError as exc:
-        parser.error(str(exc))
+    if band_allocation is not None:
+        # The interval-first policy deliberately uses the full logical-CPU
+        # budget, so the legacy optimizer validator's reserved-core rule does
+        # not apply. Candidate count × interval threads is the shared budget.
+        total_logical_threads = (
+            args.workers * band_allocation.total_threads
+        )
+        if total_logical_threads > band_allocation.logical_cpus:
+            parser.error(
+                "Combined candidate and interval allocation exceeds available "
+                "logical CPUs."
+            )
+    else:
+        try:
+            validate_allocation(args.workers, args.threads_per_worker)
+        except ValueError as exc:
+            parser.error(str(exc))
 
     space = DiscreteParameterSpace.from_config(config)
     if space.dimension == 0:
