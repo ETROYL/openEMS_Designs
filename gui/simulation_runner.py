@@ -24,6 +24,7 @@ def run_multiband_simulation(config_path: Path, output_parent: Path, design_name
     simulation = get_simulation_settings(cfg, "simulation")
     fstart = float(simulation["fstart"])
     fstop = float(simulation["fstop"])
+    n_points = int(simulation.get("n_pts", 1024))
     if fstart <= 0 or fstop <= fstart:
         raise ValueError("simulation.fstart/fstop must define a positive increasing frequency range")
 
@@ -31,7 +32,7 @@ def run_multiband_simulation(config_path: Path, output_parent: Path, design_name
     snapshot_path = output_dir / "design.yaml"
     print(f"Design: {design_name}", flush=True)
     print("Simulation engine: multi-band", flush=True)
-    print("Simulation profile: accurate (-40 dB, 1,000,000 timesteps, 1,024 points)", flush=True)
+    print(f"Simulation profile: accurate (-40 dB, 1,000,000 timesteps, {n_points:,} points)", flush=True)
     print(f"Frequency range: {fstart:g}–{fstop:g} GHz", flush=True)
     print(f"OpenMP threads per band: {NUM_THREADS}", flush=True)
     print("Preparing deterministic equal-width frequency intervals…", flush=True)
@@ -46,6 +47,7 @@ def run_multiband_simulation(config_path: Path, output_parent: Path, design_name
         output_dir=output_dir,
         frequency_range_ghz=(fstart, fstop),
         profile="accurate",
+        n_points=n_points,
         threads=NUM_THREADS,
         record_far_field=True,
     )
