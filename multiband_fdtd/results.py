@@ -329,6 +329,18 @@ def calculate_far_field(csv_path: str | Path, simulation_dir: str | Path,
     figure.savefig(pattern_path, dpi=190, bbox_inches="tight")
     plt.close(figure)
 
+    efficiency_warnings = []
+    for label, values in (
+        ("radiation", radiation_efficiency),
+        ("mismatch", mismatch_efficiency),
+        ("total", total_efficiency),
+    ):
+        if any(value > 101.0 for value in values):
+            efficiency_warnings.append(
+                f"{label.capitalize()} efficiency exceeds 101% at one or more "
+                "frequencies; inspect the power balance and recording quality."
+            )
+
     metrics = {
         "frequency_ghz": [float(x) for x in eval_freqs_ghz],
         "directivity_dbi": [float(x) for x in directivity],
@@ -338,6 +350,7 @@ def calculate_far_field(csv_path: str | Path, simulation_dir: str | Path,
         "mismatch_efficiency_percent": [float(x) for x in mismatch_efficiency],
         "total_efficiency_percent": [float(x) for x in total_efficiency],
         "efficiency_status": "calculated_from_nf2ff_and_port_power",
+        "efficiency_warnings": efficiency_warnings,
         "radiation_pattern_frequency_ghz": pattern_frequency_ghz,
         "radiation_pattern_theta_deg": [float(x) for x in theta],
         "radiation_pattern_e_plane_db": [float(x) for x in e_db[:, 0]],
@@ -381,7 +394,10 @@ def calculate_far_field(csv_path: str | Path, simulation_dir: str | Path,
     ax.set_title("Efficiency")
     ax.set_ylabel("Efficiency (%)")
     ax.set_xlabel("Frequency (GHz)")
-    ax.set_ylim(0, 105)
+    efficiency_max = max(
+        radiation_efficiency + mismatch_efficiency + total_efficiency + [100.0]
+    )
+    ax.set_ylim(0, max(105.0, 5.0 * np.ceil(efficiency_max / 5.0)))
     ax.legend(fontsize="small")
     ax.grid(True, alpha=0.3)
     figure.tight_layout()
@@ -397,6 +413,8 @@ def calculate_far_field(csv_path: str | Path, simulation_dir: str | Path,
         "NF2FF radiated power and port accepted/incident power.",
         flush=True,
     )
+    for warning in efficiency_warnings:
+        print(f"WARNING: {warning}", flush=True)
     return metrics
 
 
@@ -765,7 +783,13 @@ def create_result_plot_set(
                  far_field.get("mismatch_efficiency_percent", []),
                  color="#3995ff", linewidth=1.2,
                  label="Mismatch efficiency")
-    axes[7].set_ylim(0, 105)
+    efficiency_series = (
+        far_field.get("radiation_efficiency_percent", [])
+        + far_field.get("mismatch_efficiency_percent", [])
+        + far_field.get("total_efficiency_percent", [])
+    )
+    efficiency_max = max(efficiency_series + [100.0])
+    axes[7].set_ylim(0, max(105.0, 5.0 * np.ceil(efficiency_max / 5.0)))
     axes[7].legend(fontsize=6)
     for axis in (axes[0], axes[1], axes[2], axes[3], axes[5], axes[6], axes[7]):
         axis.grid(True, alpha=0.28)
