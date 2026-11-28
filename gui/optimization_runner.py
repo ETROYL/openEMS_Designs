@@ -212,19 +212,24 @@ def main() -> int:
     band_allocation = None
     if interval_plan_path is not None:
         band_allocation = allocate_band_resources(len(fixed_bands))
-        # One candidate at a time; its interval simulations consume the shared
-        # CPU budget. This prevents nested candidate/interval pools.
-        args.workers = 1
+        # Each candidate owns an interval pool. Limit candidate concurrency
+        # so all simultaneously active interval pools share one CPU budget.
+        threads_per_candidate = band_allocation.total_threads
+        args.workers = max(
+            1, band_allocation.logical_cpus // threads_per_candidate
+        )
         args.threads_per_worker = 1
         print(
-            f"Interval execution allocation: {band_allocation.workers} concurrent "
-            f"interval(s) × {band_allocation.threads_per_worker} thread(s) "
-            f"({band_allocation.logical_cpus} logical CPUs available).",
+            f"Per-candidate interval allocation: {band_allocation.workers} "
+            f"interval worker(s) × {band_allocation.threads_per_worker} "
+            f"thread(s) ({threads_per_candidate} logical CPUs).",
             flush=True,
         )
         print(
-            "Candidate evaluations are serialized so interval workers can use "
-            "the CPU budget without nested-pool oversubscription.",
+            f"Candidate concurrency: up to {args.workers} candidate(s); "
+            f"combined FDTD allocation is capped at "
+            f"{args.workers * threads_per_candidate} of "
+            f"{band_allocation.logical_cpus} logical CPUs.",
             flush=True,
         )
 
