@@ -390,6 +390,7 @@ def run_multiband(
 
     manifest.update({
         "interval_workers": worker_count,
+        "threads": allocation_threads,
         "threads_per_interval": allocation_threads,
         "logical_cpu_capacity": allocation.logical_cpus,
         "execution_batches": math.ceil(len(normalized) / worker_count),
@@ -443,7 +444,7 @@ def run_multiband(
     manifest["total_runtime_seconds"] = sum(item.runtime_seconds for item in completed_results)
     manifest["band_results"] = [
         {"runtime_seconds": item.runtime_seconds, "mesh_cells": item.cells,
-         "output_dir": item.output_dir} for item in results
+         "output_dir": item.output_dir} for item in completed_results
     ]
     (root / "multiband_run.json").write_text(
         json.dumps(manifest, indent=2), encoding="utf-8"
@@ -452,6 +453,9 @@ def run_multiband(
         **combined, "bands": completed_results,
         "total_runtime_seconds": manifest["total_runtime_seconds"],
         "output_dir": str(root), "profile": profile,
+        "interval_workers": worker_count,
+        "threads_per_interval": allocation_threads,
+        "logical_cpu_capacity": allocation.logical_cpus,
     }
 
 
@@ -687,8 +691,9 @@ def run_multiband_auto(
             "n_points": sample_count,
             "end_criteria_db": default_db if end_criteria_db is None else float(end_criteria_db),
             "max_timesteps": default_steps if max_timesteps is None else int(max_timesteps),
-            "threads": int(threads) if threads is not None else None,
-            "interval_workers": int(workers) if workers is not None else None,
+            "threads": production["threads_per_interval"],
+            "interval_workers": production["interval_workers"],
+            "logical_cpu_capacity": production["logical_cpu_capacity"],
             "far_field_recorded": bool(record_far_field),
         },
     }
