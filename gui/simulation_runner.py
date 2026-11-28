@@ -6,6 +6,8 @@ from CSXCAD import ContinuousStructure
 from openEMS import openEMS
 from design import build_design, get_simulation_settings, load_config
 from parallel import NUM_THREADS
+from multiband_fdtd import build_equal_width_frequency_bands
+from multiband_fdtd.resources import allocate_band_resources
 
 def _unique_output_dir(output_parent: Path, design_name: str) -> Path:
     output_parent.mkdir(parents=True, exist_ok=True)
@@ -34,7 +36,14 @@ def run_multiband_simulation(config_path: Path, output_parent: Path, design_name
     print("Simulation engine: multi-band", flush=True)
     print(f"Simulation profile: accurate (-40 dB, 1,000,000 timesteps, {n_points:,} points)", flush=True)
     print(f"Frequency range: {fstart:g}–{fstop:g} GHz", flush=True)
-    print(f"OpenMP threads per band: {NUM_THREADS}", flush=True)
+    planned_bands = build_equal_width_frequency_bands((fstart, fstop), n_points)
+    allocation = allocate_band_resources(len(planned_bands))
+    print(
+        f"Interval execution: {allocation.workers} worker(s) × "
+        f"{allocation.threads_per_worker} OpenMP thread(s) per interval "
+        f"({allocation.logical_cpus} logical CPUs available).",
+        flush=True,
+    )
     print("Preparing deterministic equal-width frequency intervals…", flush=True)
 
     from multiband_fdtd import run_multiband_auto
@@ -48,7 +57,8 @@ def run_multiband_simulation(config_path: Path, output_parent: Path, design_name
         frequency_range_ghz=(fstart, fstop),
         profile="accurate",
         n_points=n_points,
-        threads=NUM_THREADS,
+        threads=allocation.threads_per_worker,
+        workers=allocation.workers,
         record_far_field=True,
     )
     snapshot_path.write_text(config_path.read_text(encoding="utf-8"), encoding="utf-8")
