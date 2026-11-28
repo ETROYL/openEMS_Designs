@@ -8,6 +8,7 @@ import math
 import shutil
 
 from gui.cpu_resources import detect_cpu_resources, validate_allocation
+from multiband_fdtd.resources import allocate_band_resources
 from pathlib import Path
 
 import yaml
@@ -208,6 +209,25 @@ def main() -> int:
             print("OPTIMIZATION_STOPPED=1", flush=True)
             return 0
 
+    band_allocation = None
+    if interval_plan_path is not None:
+        band_allocation = allocate_band_resources(len(fixed_bands))
+        # One candidate at a time; its interval simulations consume the shared
+        # CPU budget. This prevents nested candidate/interval pools.
+        args.workers = 1
+        args.threads_per_worker = 1
+        print(
+            f"Interval execution allocation: {band_allocation.workers} concurrent "
+            f"interval(s) × {band_allocation.threads_per_worker} thread(s) "
+            f"({band_allocation.logical_cpus} logical CPUs available).",
+            flush=True,
+        )
+        print(
+            "Candidate evaluations are serialized so interval workers can use "
+            "the CPU budget without nested-pool oversubscription.",
+            flush=True,
+        )
+
     space = DiscreteParameterSpace.from_config(config)
     if space.dimension == 0:
         raise ValueError("The YAML contains no active discrete optimization variables.")
@@ -246,8 +266,8 @@ def main() -> int:
         flush=True,
     )
     print(
-        f"Active execution: {args.workers} spawned process worker(s), "
-        f"{args.threads_per_worker} FDTD thread(s) per worker; "
+        f"Active candidate execution: {args.workers} spawned process worker(s), "
+        f"{args.threads_per_worker} process thread(s) per worker; "
         f"up to {args.workers} candidates evaluated concurrently.",
         flush=True,
     )
