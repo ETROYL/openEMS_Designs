@@ -167,12 +167,45 @@ def _build_nf2ff_for_band(band_dir: Path):
     fdtd.SetCSX(csx)
     fdtd.SetGaussExcite(0.5 * (fstart + fstop), fstop - fstart)
     fdtd.SetBoundaryCond(["PML_8"] * 6)
-    _port, nf2ff = build_design(
+    port, nf2ff = build_design(
         csx, fdtd, config_file=str(config_path), enable_nf2ff=True
     )
+    if isinstance(port, (list, tuple)):
+        if len(port) != 1:
+            raise NotImplementedError(
+                "Far-field power metrics currently require exactly one excited port."
+            )
+        port = port[0]
+    if port is None:
+        raise RuntimeError(f"Could not recreate the input port for {band_dir}")
     if nf2ff is None:
         raise RuntimeError(f"Could not recreate NF2FF box for {band_dir}")
-    return nf2ff
+    return port, nf2ff
+
+
+def _calculate_efficiencies(prad: float, p_acc: float, p_inc: float) -> dict[str, float]:
+    """Return radiation, mismatch and total efficiencies from simulated powers."""
+    values = np.asarray([prad, p_acc, p_inc], dtype=float)
+    if not np.all(np.isfinite(values)):
+        raise ValueError("Far-field power values must be finite.")
+    prad, p_acc, p_inc = (float(value) for value in values)
+    if prad < 0 or p_acc <= 0 or p_inc <= 0:
+        raise ValueError(
+            "Invalid far-field power balance: Prad must be non-negative and "
+            "P_acc/P_inc must be positive."
+        )
+    return {
+        "radiation": prad / p_acc,
+        "mismatch": p_acc / p_inc,
+        "total": prad / p_inc,
+    }
+
+
+def _power_to_dbi(linear_value: float) -> float:
+    """Convert a non-negative linear power/directivity ratio to dBi."""
+    if not np.isfinite(linear_value) or linear_value < 0:
+        return float("nan")
+    return 10.0 * np.log10(max(linear_value, 1e-30))
 
 
 def calculate_far_field(csv_path: str | Path, simulation_dir: str | Path,
@@ -231,26 +264,42 @@ def calculate_far_field(csv_path: str | Path, simulation_dir: str | Path,
     theta = np.linspace(-180.0, 180.0, 361)
     phi = [0.0, 90.0]
     eval_freqs_ghz = np.linspace(float(freq_ghz[0]), float(freq_ghz[-1]), 21)
-    directivity, realized_gain, total_efficiency = [], [], []
+    directivity, gain, realized_gain = [], [], []
+    radiation_efficiency, mismatch_efficiency, total_efficiency = [], [], []
     pattern_result = None
 
     for index, frequency_ghz in enumerate(eval_freqs_ghz, start=1):
         band_dir = band_for(float(frequency_ghz))[2]
-        nf2ff = nf2ff_for(band_dir)
+        port, nf2ff = nf2ff_for(band_dir)
+        frequency_hz = float(frequency_ghz) * 1e9
         result = nf2ff.CalcNF2FF(
-            str(band_dir), float(frequency_ghz) * 1e9, theta, phi
+            str(band_dir), frequency_hz, theta, phi
         )
-        dmax = float(result.Dmax[0])
-        dmax_dbi = 10.0 * np.log10(max(dmax, 1e-12))
-        s11_mag = float(np.interp(frequency_ghz, freq_ghz, s11_linear))
-        mismatch_efficiency = max(0.0, 1.0 - s11_mag ** 2)
-        # PEC-only model: radiation efficiency is an explicit idealized assumption.
-        realized = dmax_dbi + 10.0 * np.log10(max(mismatch_efficiency, 1e-12))
+        # CalcPort supplies incident, reflected and accepted input powers at
+        # the same frequency used by NF2FF. Do not infer accepted power from
+        # smoothed S11 data.
+        port.CalcPort(str(band_dir), np.asarray([frequency_hz], dtype=float))
+        prad = float(np.asarray(result.Prad, dtype=float).reshape(-1)[0])
+        p_acc = float(np.asarray(port.P_acc, dtype=float).reshape(-1)[0])
+        p_inc = float(np.asarray(port.P_inc, dtype=float).reshape(-1)[0])
+        efficiencies = _calculate_efficiencies(prad, p_acc, p_inc)
+
+        dmax = float(np.asarray(result.Dmax, dtype=float).reshape(-1)[0])
+        dmax_dbi = _power_to_dbi(dmax)
+        gain_dbi = _power_to_dbi(dmax * efficiencies["radiation"])
+        realized_dbi = _power_to_dbi(dmax * efficiencies["total"])
         directivity.append(dmax_dbi)
-        realized_gain.append(realized)
-        total_efficiency.append(100.0 * mismatch_efficiency)
-        print(f"Far-field {index}/21: {frequency_ghz:.4f} GHz, "
-              f"directivity {dmax_dbi:.2f} dBi", flush=True)
+        gain.append(gain_dbi)
+        realized_gain.append(realized_dbi)
+        radiation_efficiency.append(100.0 * efficiencies["radiation"])
+        mismatch_efficiency.append(100.0 * efficiencies["mismatch"])
+        total_efficiency.append(100.0 * efficiencies["total"])
+        print(
+            f"Far-field {index}/21: {frequency_ghz:.4f} GHz, "
+            f"directivity {dmax_dbi:.2f} dBi, gain {gain_dbi:.2f} dBi, "
+            f"realized gain {realized_dbi:.2f} dBi",
+            flush=True,
+        )
     band_dir = band_for(resonance_ghz)[2]
     pattern_result = nf2ff_for(band_dir).CalcNF2FF(
         str(band_dir), resonance_ghz * 1e9, theta, phi
@@ -281,12 +330,14 @@ def calculate_far_field(csv_path: str | Path, simulation_dir: str | Path,
     plt.close(figure)
 
     metrics = {
-        "radiation_efficiency_percent": 100.0,
-        "radiation_efficiency_status": "assumed_ideal_lossless_PEC",
         "frequency_ghz": [float(x) for x in eval_freqs_ghz],
         "directivity_dbi": [float(x) for x in directivity],
+        "gain_dbi": [float(x) for x in gain],
         "realized_gain_dbi": [float(x) for x in realized_gain],
+        "radiation_efficiency_percent": [float(x) for x in radiation_efficiency],
+        "mismatch_efficiency_percent": [float(x) for x in mismatch_efficiency],
         "total_efficiency_percent": [float(x) for x in total_efficiency],
+        "efficiency_status": "calculated_from_nf2ff_and_port_power",
         "radiation_pattern_frequency_ghz": pattern_frequency_ghz,
         "radiation_pattern_theta_deg": [float(x) for x in theta],
         "radiation_pattern_e_plane_db": [float(x) for x in e_db[:, 0]],
@@ -311,16 +362,22 @@ def calculate_far_field(csv_path: str | Path, simulation_dir: str | Path,
     ax.set_xlabel("Frequency (GHz)")
     ax.grid(True, alpha=0.3)
     ax = figure.add_subplot(223)
-    ax.plot(eval_freqs_ghz, realized_gain, color="#ff9f43", marker="s", linewidth=1.6)
-    ax.set_title("Realized gain (ideal PEC model)")
-    ax.set_ylabel("Realized gain (dBi)")
+    ax.plot(eval_freqs_ghz, gain, color="#3995ff", marker="o", linewidth=1.6,
+            label="Gain")
+    ax.plot(eval_freqs_ghz, realized_gain, color="#ff9f43", marker="s",
+            linewidth=1.6, label="Realized gain")
+    ax.set_title("Gain and realized gain")
+    ax.set_ylabel("Gain (dBi)")
     ax.set_xlabel("Frequency (GHz)")
+    ax.legend(fontsize="small")
     ax.grid(True, alpha=0.3)
     ax = figure.add_subplot(224)
-    ax.plot(eval_freqs_ghz, np.full(len(eval_freqs_ghz), 100.0), "--",
-            color="#f2f4f7", label="100% radiation efficiency (PEC)")
+    ax.plot(eval_freqs_ghz, radiation_efficiency, "--",
+            color="#f2f4f7", label="Radiation efficiency")
+    ax.plot(eval_freqs_ghz, mismatch_efficiency, color="#3995ff",
+            label="Mismatch efficiency")
     ax.plot(eval_freqs_ghz, total_efficiency, color="#b38cff", marker="^",
-            label="Total efficiency incl. mismatch")
+            label="Total efficiency")
     ax.set_title("Efficiency")
     ax.set_ylabel("Efficiency (%)")
     ax.set_xlabel("Frequency (GHz)")
@@ -336,8 +393,8 @@ def calculate_far_field(csv_path: str | Path, simulation_dir: str | Path,
     metrics_path.write_text(json.dumps(metrics, indent=2), encoding="utf-8")
     print(f"Saved radiation and far-field plot: {radiation_plot}", flush=True)
     print(
-        "Radiation efficiency is assumed to be 100% for ideal PEC; "
-        "conductor and dielectric losses are not modeled.",
+        "Radiation, mismatch and total efficiencies were calculated from "
+        "NF2FF radiated power and port accepted/incident power.",
         flush=True,
     )
     return metrics
