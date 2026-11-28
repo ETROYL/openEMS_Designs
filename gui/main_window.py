@@ -17,14 +17,15 @@ import yaml
 
 from gui.cpu_resources import detect_cpu_resources, validate_allocation
 from gui.optimization_compatibility import find_incompatible_settings
+from gui.theme import apply_theme
 from matplotlib.backends.backend_qtagg import FigureCanvasQTAgg as FigureCanvas
 from matplotlib.figure import Figure
-from PySide6.QtCore import Qt, QProcess, QTimer
+from PySide6.QtCore import Qt, QProcess, QTimer, QSettings
 from PySide6.QtGui import QGuiApplication, QIcon, QPixmap
 from PySide6.QtWidgets import (
     QCheckBox, QComboBox, QDoubleSpinBox, QFileDialog, QFormLayout, QGroupBox, QHBoxLayout, QLabel, QMainWindow,
     QMessageBox, QPlainTextEdit, QProgressBar, QPushButton, QRadioButton, QScrollArea,
-    QSpinBox, QSizePolicy, QSplitter, QTabWidget, QToolBar, QVBoxLayout, QWidget,
+    QSpinBox, QSizePolicy, QSplitter, QTabWidget, QToolBar, QVBoxLayout, QWidget, QApplication,
 )
 
 
@@ -128,6 +129,20 @@ class MainWindow(QMainWindow):
             button.clicked.connect(callback)
             toolbar.addWidget(button)
 
+        toolbar.addSeparator()
+        toolbar.addWidget(QLabel("Appearance"))
+        self.theme_selector = QComboBox()
+        self.theme_selector.addItem("ETROYL Dark", "dark")
+        self.theme_selector.addItem("ETROYL Light", "light")
+        settings = QSettings("ETROYL", "ETROYL Electromagnetic Design")
+        saved_theme = str(settings.value("appearance/theme", "dark")).lower()
+        self.theme_selector.setCurrentIndex(
+            1 if saved_theme == "light" else 0
+        )
+        self.theme_selector.setToolTip("Choose the application colour scheme")
+        self.theme_selector.currentIndexChanged.connect(self._change_theme)
+        toolbar.addWidget(self.theme_selector)
+
         # Branded application header above the existing workflow tabs.
         central = QWidget()
         central_layout = QVBoxLayout(central)
@@ -185,6 +200,16 @@ class MainWindow(QMainWindow):
         self.editor.textChanged.connect(self._update_simulation_settings)
         self._update_simulation_settings()
         self.statusBar().showMessage("Ready — open a YAML design to begin")
+
+    def _change_theme(self, _index: int = 0) -> None:
+        """Apply and persist the selected ETROYL application theme."""
+        theme_name = str(self.theme_selector.currentData() or "dark")
+        app = QApplication.instance()
+        if app is not None:
+            apply_theme(app, theme_name)
+        QSettings("ETROYL", "ETROYL Electromagnetic Design").setValue(
+            "appearance/theme", theme_name
+        )
 
     def _editor_page(self) -> QWidget:
         page = QWidget()
