@@ -615,3 +615,30 @@ class EqualWidthIntervalPlannerTests(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+
+class EqualWidthFrequencyBandTests(unittest.TestCase):
+    def test_rounds_boundaries_and_preserves_uniform_global_sampling(self):
+        from multiband_fdtd.engine import build_equal_width_frequency_bands
+
+        bands = build_equal_width_frequency_bands(
+            (0.1, 6.0), 5901,
+            maximum_bandwidth_ghz=0.5,
+            overlap_fraction=0.2,
+        )
+        self.assertEqual(len(bands), 15)
+        self.assertEqual(
+            [band.fstart_ghz for band in bands],
+            [0.1 + 0.4 * index for index in range(15)],
+        )
+        self.assertEqual(bands[0].fstop_ghz, 0.6)
+        self.assertEqual(bands[1].fstart_ghz, 0.5)
+        self.assertEqual(bands[-1].fstop_ghz, 6.0)
+        self.assertTrue(all(band.fstop_ghz - band.fstart_ghz <= 0.5 for band in bands))
+        self.assertTrue(all(band.n_pts == 501 for band in bands[:-1]))
+        self.assertEqual(bands[-1].n_pts, 301)
+        self.assertTrue(all(
+            round(right.fstart_ghz - left.fstop_ghz, 12) == -0.1
+            for left, right in zip(bands, bands[1:])
+        ))
