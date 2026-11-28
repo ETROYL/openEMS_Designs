@@ -137,26 +137,27 @@ def main() -> int:
         2, 2, figsize=(10, 7), sharex=True
     )
     ax1.plot(freq_ghz, s11_db, "b-", linewidth=2)
-    ax1.axhline(-10, color="k", linestyle="--", linewidth=1.5)
+    ax1.axhline(-10, color="#f2f4f7", linestyle="--", linewidth=1.2)
     ax1.set_ylabel("|S11| (dB)")
     ax1.set_ylim([-35, 0])
     ax1.grid(True)
     ax1.set_title("S11 Parameter")
 
     ax2.plot(freq_ghz, vswr, "r-", linewidth=2)
-    ax2.axhline(2, color="k", linestyle="--", linewidth=1.5)
+    ax2.axhline(2, color="#f2f4f7", linestyle="--", linewidth=1.2)
     ax2.set_xlabel("Frequency (GHz)")
     ax2.set_ylabel("VSWR")
+    ax2.set_ylim([0, 5])
     ax2.grid(True)
 
     ax3.plot(freq_ghz, z_in.real, "b-", linewidth=2)
-    ax3.axhline(z0, color="k", linestyle="--", linewidth=1.5)
+    ax3.axhline(z0, color="#f2f4f7", linestyle="--", linewidth=1.2)
     ax3.set_ylabel("Re(Zin) [Ohm]")
     ax3.grid(True)
     ax3.set_title(f"Input impedance (reference {z0:g} Ohm)")
 
     ax4.plot(freq_ghz, z_in.imag, "r-", linewidth=2)
-    ax4.axhline(0, color="k", linestyle="--", linewidth=1.5)
+    ax4.axhline(0, color="#f2f4f7", linestyle="--", linewidth=1.2)
     ax4.set_xlabel("Frequency (GHz)")
     ax4.set_ylabel("Im(Zin) [Ohm]")
     ax4.grid(True)
@@ -234,7 +235,7 @@ def main() -> int:
 
     ax_eff = fig2.add_subplot(224)
     ax_eff.plot(
-        eval_freqs_ghz, assumed_rad_efficiency_list, "r--", linewidth=2,
+        eval_freqs_ghz, assumed_rad_efficiency_list, color="#f2f4f7", linestyle="--", linewidth=2,
         label="Assumed radiation efficiency (100%)",
     )
     ax_eff.plot(
