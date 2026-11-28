@@ -62,20 +62,20 @@ def build_equal_width_frequency_bands(
     span = fstop - fstart
     width = min(maximum_bandwidth_ghz, span)
     step = width * (1.0 - overlap_fraction)
-    starts = [fstart]
-    tolerance = 1e-12
-    while starts[-1] + width < fstop - tolerance:
-        next_start = starts[-1] + step
-        if next_start <= starts[-1] + tolerance:
-            break
-        starts.append(next_start)
-
     grid_spacing = span / (n_points - 1)
     bands = []
-    for low in starts:
-        high = min(fstop, low + width)
+    index = 0
+    tolerance = 1e-12
+    while True:
+        # Derive every boundary from the original start and integer index.
+        # This avoids cumulative floating-point drift across many intervals.
+        low = round(fstart + index * step, 12)
+        high = round(min(fstop, low + width), 12)
         points = max(2, int(math.ceil((high - low) / grid_spacing - 1e-12)) + 1)
         bands.append(FrequencyBand(low, high, points))
+        if high >= fstop - tolerance:
+            break
+        index += 1
     return bands
 
 
@@ -725,6 +725,30 @@ def run_multiband_auto(
     root = Path(output_dir).expanduser().resolve()
     root.parent.mkdir(parents=True, exist_ok=True)
     root.mkdir(parents=False, exist_ok=False)
+    plan_manifest = {
+        "status": "started",
+        "profile": profile,
+        "frequency_range_ghz": list(map(float, frequency_range_ghz)),
+        "selected_intervals": [asdict(band) for band in bands],
+        "interval_settings": {
+            "maximum_bandwidth_ghz": float(maximum_bandwidth_ghz),
+            "overlap_fraction": float(overlap_fraction),
+        },
+        "production_output_dir": str(root / "simulation"),
+        "production_settings": {
+            "n_points": sample_count,
+            "end_criteria_db": default_db if end_criteria_db is None else float(end_criteria_db),
+            "max_timesteps": default_steps if max_timesteps is None else int(max_timesteps),
+            "threads": threads,
+            "interval_workers": workers,
+            "smoothing_sigma_points": float(smoothing_sigma_points),
+            "far_field_recorded": bool(record_far_field),
+        },
+    }
+    # Persist the complete interval plan before starting workers so it remains
+    # available even if a production interval fails.
+    manifest_path = root / "automatic_run.json"
+    manifest_path.write_text(json.dumps(plan_manifest, indent=2), encoding="utf-8")
     production = run_multiband(
         config_path=config_path,
         output_dir=root / "simulation",
@@ -739,29 +763,14 @@ def run_multiband_auto(
         smoothing_sigma_points=smoothing_sigma_points,
         record_far_field=record_far_field,
     )
-    plan_manifest = {
-        "profile": profile,
-        "frequency_range_ghz": list(map(float, frequency_range_ghz)),
-        "selected_intervals": [asdict(band) for band in bands],
-        "interval_settings": {
-            "maximum_bandwidth_ghz": float(maximum_bandwidth_ghz),
-            "overlap_fraction": float(overlap_fraction),
-        },
-        "production_output_dir": production["output_dir"],
-        "production_settings": {
-            "n_points": sample_count,
-            "end_criteria_db": default_db if end_criteria_db is None else float(end_criteria_db),
-            "max_timesteps": default_steps if max_timesteps is None else int(max_timesteps),
-            "threads": production.get("threads_per_interval", threads),
-            "interval_workers": production.get("interval_workers", workers),
-            "logical_cpu_capacity": production.get("logical_cpu_capacity"),
-            "smoothing_sigma_points": float(smoothing_sigma_points),
-            "far_field_recorded": bool(record_far_field),
-        },
-    }
-    (root / "automatic_run.json").write_text(
-        json.dumps(plan_manifest, indent=2), encoding="utf-8"
-    )
+    plan_manifest["status"] = "complete"
+    plan_manifest["production_settings"].update({
+        "threads": production.get("threads_per_interval", threads),
+        "interval_workers": production.get("interval_workers", workers),
+        "logical_cpu_capacity": production.get("logical_cpu_capacity"),
+    })
+    plan_manifest["total_runtime_seconds"] = production.get("total_runtime_seconds")
+    manifest_path.write_text(json.dumps(plan_manifest, indent=2), encoding="utf-8")
     return {
         **production,
         "interval_plan": [asdict(band) for band in bands],
