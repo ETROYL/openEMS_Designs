@@ -127,6 +127,7 @@ class BroadbandResultsTests(unittest.TestCase):
             "radiation_pattern_frequency_ghz": 2.5,
         })
         self.assertEqual(tuple(axis.get_ylim()), (-30.0, 0.0))
+        self.assertEqual(list(axis.get_yticks()), [-30, -20, -10, 0])
         plt.close(figure)
 
 
