@@ -475,121 +475,91 @@ class CharacterizationTests(unittest.TestCase):
 
 class AutomaticRunTests(unittest.TestCase):
     @patch("multiband_fdtd.engine.run_multiband")
-    @patch("multiband_fdtd.characterization.characterize_and_select_intervals")
-    def test_prepares_then_runs_with_separate_settings(
-        self, characterize, run_production
-    ):
-        selected = [
-            FrequencyBand(0.1, 0.7, 41),
-            FrequencyBand(0.6, 1.5, 41),
-            FrequencyBand(1.4, 3.0, 41),
-        ]
-        characterize.return_value = {
-            "selected_bands": selected,
-            "manifest_path": "/tmp/plan/characterization.json",
-            "selection": {"selected_intervals": []},
-        }
+    def test_builds_equal_width_plan_without_pilot_simulations(self, run_production):
         run_production.return_value = {
             "output_dir": "/tmp/automatic_run/simulation",
             "profile": "accurate",
             "freq": np.array([1.0]),
         }
-
         with tempfile.TemporaryDirectory() as temp:
             config = Path(temp) / "design.yaml"
-            config.write_text("variables: {}\n", encoding="utf-8")
+            config.write_text("variables: {}\\n", encoding="utf-8")
             output = Path(temp) / "automatic_run"
             result = run_multiband_auto(
-                config,
-                output,
-                (0.1, 3.0),
-                profile="accurate",
-                pilot_n_pts=31,
-                pilot_end_criteria_db=-8.0,
-                pilot_max_timesteps=12000,
-                pilot_threads=2,
-                end_criteria_db=-35.0,
-                max_timesteps=700000,
-                n_points=801,
-                threads=4,
-                smoothing_sigma_points=1.5,
+                config, output, (0.1, 3.0), profile="accurate",
+                end_criteria_db=-35.0, max_timesteps=700000,
+                n_points=801, threads=4, smoothing_sigma_points=1.5,
                 record_far_field=True,
             )
 
-        self.assertEqual(
-            [(b.fstart_ghz, b.fstop_ghz) for b in result["selected_bands"]],
-            [(b.fstart_ghz, b.fstop_ghz) for b in selected],
-        )
-        self.assertTrue(all(b.n_pts > 41 for b in result["selected_bands"]))
-        self.assertEqual(result["planning_manifest_path"],
-                         "/tmp/plan/characterization.json")
-        self.assertEqual(
-            Path(characterize.call_args.kwargs["output_dir"]),
-            output / "characterization",
-        )
-        self.assertEqual(
-            Path(run_production.call_args.kwargs["output_dir"]),
-            output / "simulation",
-        )
-        self.assertEqual(
-            run_production.call_args.kwargs["bands"], result["selected_bands"]
-        )
-        self.assertEqual(run_production.call_args.kwargs["profile"], "accurate")
-        self.assertEqual(run_production.call_args.kwargs["end_criteria_db"], -35.0)
-        self.assertEqual(run_production.call_args.kwargs["max_timesteps"], 700000)
-        self.assertEqual(run_production.call_args.kwargs["n_points"], 801)
-        self.assertEqual(run_production.call_args.kwargs["threads"], 4)
-        self.assertEqual(
-            run_production.call_args.kwargs["smoothing_sigma_points"], 1.5
-        )
-        self.assertTrue(run_production.call_args.kwargs["record_far_field"])
-        self.assertEqual(characterize.call_args.kwargs["end_criteria_db"], -8.0)
-        self.assertEqual(characterize.call_args.kwargs["max_timesteps"], 12000)
-        self.assertEqual(characterize.call_args.kwargs["threads"], 2)
-        self.assertEqual(characterize.call_args.kwargs["n_pts"], 31)
-        self.assertEqual(
-            characterize.call_args.kwargs["max_pilot_mesh_cells"], 2_000_000
-        )
+        bands = result["selected_bands"]
+        self.assertEqual(len(bands), 6)
+        self.assertEqual(sum(band.n_pts for band in bands), 801)
+        self.assertTrue(all(band.fstop_ghz - band.fstart_ghz <= 0.5 + 1e-12
+                            for band in bands))
+        self.assertAlmostEqual(bands[0].fstart_ghz, 0.1)
+        self.assertAlmostEqual(bands[-1].fstop_ghz, 3.0)
+        self.assertTrue(all(
+            abs(left.fstop_ghz - right.fstart_ghz) < 1e-12
+            for left, right in zip(bands, bands[1:])
+        ))
+        kwargs = run_production.call_args.kwargs
+        self.assertEqual(Path(kwargs["output_dir"]), output / "simulation")
+        self.assertEqual(kwargs["bands"], bands)
+        self.assertEqual(kwargs["profile"], "accurate")
+        self.assertEqual(kwargs["end_criteria_db"], -35.0)
+        self.assertEqual(kwargs["max_timesteps"], 700000)
+        self.assertEqual(kwargs["n_points"], 801)
+        self.assertEqual(kwargs["threads"], 4)
+        self.assertEqual(kwargs["smoothing_sigma_points"], 1.5)
+        self.assertTrue(kwargs["record_far_field"])
+        self.assertTrue((output / "automatic_run.json").is_file())
 
     @patch("multiband_fdtd.engine.run_multiband")
-    @patch("multiband_fdtd.characterization.characterize_and_select_intervals")
-    def test_uses_profile_defaults_without_pilot_leakage(
-        self, characterize, run_production
-    ):
-        characterize.return_value = {
-            "selected_bands": [FrequencyBand(0.1, 1.0, 41)],
-            "manifest_path": "characterization.json",
-        }
+    def test_uses_profile_defaults(self, run_production):
         run_production.return_value = {"output_dir": "simulation"}
         with tempfile.TemporaryDirectory() as temp:
             config = Path(temp) / "design.yaml"
-            config.write_text("variables: {}\n", encoding="utf-8")
+            config.write_text("variables: {}\\n", encoding="utf-8")
             run_multiband_auto(
                 config, Path(temp) / "run", (0.1, 1.0),
                 profile="optimization",
-                pilot_end_criteria_db=-6.0,
-                pilot_max_timesteps=5000,
-                pilot_threads=1,
             )
         kwargs = run_production.call_args.kwargs
-        self.assertIsNone(kwargs["end_criteria_db"])
-        self.assertIsNone(kwargs["max_timesteps"])
-        self.assertIsNone(kwargs["n_points"])
+        self.assertEqual(kwargs["end_criteria_db"], -15.0)
+        self.assertEqual(kwargs["max_timesteps"], 200000)
+        self.assertEqual(kwargs["n_points"], 301)
         self.assertEqual(kwargs["profile"], "optimization")
 
-    def test_rejects_invalid_profile_before_characterization(self):
+    def test_rejects_invalid_profile_before_solver(self):
         with tempfile.TemporaryDirectory() as temp:
             config = Path(temp) / "design.yaml"
-            config.write_text("variables: {}\n", encoding="utf-8")
-            with patch(
-                "multiband_fdtd.characterization.characterize_and_select_intervals"
-            ) as characterize:
+            config.write_text("variables: {}\\n", encoding="utf-8")
+            with patch("multiband_fdtd.engine.run_multiband") as run_production:
                 with self.assertRaises(ValueError):
                     run_multiband_auto(
                         config, Path(temp) / "run", (0.1, 1.0),
                         profile="unknown",
                     )
-                characterize.assert_not_called()
+                run_production.assert_not_called()
+
+
+class EqualWidthIntervalPlannerTests(unittest.TestCase):
+    def test_ceil_band_count_and_even_point_distribution(self):
+        from multiband_fdtd import build_equal_width_frequency_bands
+
+        bands = build_equal_width_frequency_bands((0.1, 3.0), 301)
+        self.assertEqual(len(bands), 6)
+        self.assertEqual([band.n_pts for band in bands], [51, 50, 50, 50, 50, 50])
+        self.assertEqual(sum(band.n_pts for band in bands), 301)
+        self.assertTrue(all(band.fstop_ghz - band.fstart_ghz <= 0.5 + 1e-12
+                            for band in bands))
+
+    def test_rejects_insufficient_samples_for_interval_count(self):
+        from multiband_fdtd import build_equal_width_frequency_bands
+
+        with self.assertRaisesRegex(ValueError, "insufficient"):
+            build_equal_width_frequency_bands((0.1, 3.0), 10)
 
 
 if __name__ == "__main__":
