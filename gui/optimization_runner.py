@@ -8,7 +8,9 @@ import math
 import shutil
 
 from gui.cpu_resources import detect_cpu_resources, validate_allocation
-from multiband_fdtd.resources import allocate_band_resources
+from multiband_fdtd.resources import (
+    allocate_band_resources, candidate_workers_for_allocation,
+)
 from pathlib import Path
 
 import yaml
@@ -210,9 +212,7 @@ def main() -> int:
         # Each candidate owns an interval pool. Limit candidate concurrency
         # so all simultaneously active interval pools share one CPU budget.
         threads_per_candidate = band_allocation.total_threads
-        args.workers = max(
-            1, band_allocation.logical_cpus // threads_per_candidate
-        )
+        args.workers = candidate_workers_for_allocation(band_allocation)
         args.threads_per_worker = 1
         print(
             f"Per-candidate interval allocation: {band_allocation.workers} "
