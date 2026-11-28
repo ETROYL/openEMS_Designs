@@ -1861,7 +1861,29 @@ class MainWindow(QMainWindow):
                     manifest = json.loads(run_manifest.read_text(encoding="utf-8"))
                     if manifest.get("far_field_recorded"):
                         process_args.extend(["--simulation-dir", str(self.last_simulation_dir)])
-                except (OSError, ValueError, TypeError):
+                        # Existing far-field metrics can be reused. Refresh the
+                        # selected pattern and all plots with one NF2FF extraction
+                        # instead of repeating the full 21-frequency analysis.
+                        far_field_metrics_path = self.last_simulation_dir / "far_field_metrics.json"
+                        if far_field_metrics_path.is_file():
+                            far_field_metrics = json.loads(
+                                far_field_metrics_path.read_text(encoding="utf-8")
+                            )
+                            selected_frequency = float(
+                                far_field_metrics.get(
+                                    "radiation_pattern_frequency_ghz",
+                                    0.5 * (
+                                        float(far_field_metrics["frequency_ghz"][0])
+                                        + float(far_field_metrics["frequency_ghz"][-1])
+                                    ),
+                                )
+                            )
+                            process_args.extend([
+                                "--pattern-frequency", f"{selected_frequency:.12g}",
+                                "--pattern-only",
+                            ])
+                            self._pattern_update_only = True
+                except (OSError, ValueError, TypeError, KeyError):
                     pass
         else:
             process_args = [
