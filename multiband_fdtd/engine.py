@@ -698,9 +698,9 @@ def run_multiband_auto(
             "n_points": sample_count,
             "end_criteria_db": default_db if end_criteria_db is None else float(end_criteria_db),
             "max_timesteps": default_steps if max_timesteps is None else int(max_timesteps),
-            "threads": production["threads_per_interval"],
-            "interval_workers": production["interval_workers"],
-            "logical_cpu_capacity": production["logical_cpu_capacity"],
+            "threads": production.get("threads_per_interval", threads),
+            "interval_workers": production.get("interval_workers", workers),
+            "logical_cpu_capacity": production.get("logical_cpu_capacity"),
             "far_field_recorded": bool(record_far_field),
         },
     }
