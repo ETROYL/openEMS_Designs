@@ -80,7 +80,7 @@ class BroadbandResultsTests(unittest.TestCase):
             catalog = json.loads((output_dir / "plot_catalog.json").read_text())
             self.assertEqual(catalog[0]["label"], "|S11| magnitude (dB)")
             self.assertEqual(catalog[1]["label"], "Integrated overview (2×2)")
-            self.assertEqual(catalog[2]["label"], "Phase(S11)")
+            self.assertEqual(catalog[3]["label"], "Phase(S11)")
             self.assertTrue((output_dir / "s11_phase.png").is_file())
             self.assertEqual(result["sample_count"], 6)
 
