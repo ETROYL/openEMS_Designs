@@ -665,7 +665,7 @@ def run_multiband_auto(
     overlap_fraction: float = 0.2,
     **_legacy_planner_options,
 ) -> dict[str, Any]:
-    """Run using a fast, deterministic equal-width interval plan.
+    """Run using a fast, deterministic overlapping interval plan.
 
     The legacy measured-planning implementation remains available through
     run_multiband_characterized(); normal execution performs no pilot FDTD runs.
@@ -722,6 +722,7 @@ def run_multiband_auto(
             "threads": production.get("threads_per_interval", threads),
             "interval_workers": production.get("interval_workers", workers),
             "logical_cpu_capacity": production.get("logical_cpu_capacity"),
+            "smoothing_sigma_points": float(smoothing_sigma_points),
             "far_field_recorded": bool(record_far_field),
         },
     }
