@@ -456,20 +456,42 @@ def _dark_plot_theme():
 
 
 def _port_reference_ohms(output_dir: Path) -> float | None:
-    """Read the first port resistance from the saved design YAML, if present."""
+    """Read the first port resistance from the saved simulation design YAML."""
     import yaml
 
-    config_path = output_dir / "design.yaml"
-    if not config_path.is_file():
-        return None
-    try:
-        config = yaml.safe_load(config_path.read_text(encoding="utf-8")) or {}
-        ports = config.get("ports") or []
-        if ports:
-            value = float(ports[0]["resistance"])
-            return value if np.isfinite(value) and value > 0 else None
-    except (OSError, ValueError, TypeError, KeyError, yaml.YAMLError):
-        return None
+    output_dir = Path(output_dir).resolve()
+    candidates = [output_dir / "design.yaml", output_dir.parent / "design.yaml"]
+
+    # Multi-band runs keep the authoritative design snapshot in each band
+    # directory; the plot output directory is not necessarily one of them.
+    for manifest_path in (
+        output_dir / "multiband_run.json",
+        output_dir.parent / "multiband_run.json",
+    ):
+        if not manifest_path.is_file():
+            continue
+        try:
+            manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+            for run in manifest.get("band_results") or []:
+                band_dir = Path(run["output_dir"])
+                if not band_dir.is_absolute():
+                    band_dir = manifest_path.parent / band_dir
+                candidates.append(band_dir / "design.yaml")
+        except (OSError, ValueError, TypeError, KeyError):
+            continue
+
+    for config_path in candidates:
+        if not config_path.is_file():
+            continue
+        try:
+            config = yaml.safe_load(config_path.read_text(encoding="utf-8")) or {}
+            ports = config.get("ports") or []
+            if ports:
+                value = float(ports[0]["resistance"])
+                if np.isfinite(value) and value > 0:
+                    return value
+        except (OSError, ValueError, TypeError, KeyError, yaml.YAMLError):
+            continue
     return None
 
 
