@@ -669,8 +669,8 @@ def create_result_plot_set(
         axis.set_xlabel("Frequency (GHz)")
         axis.set_ylabel("Phase (degrees)")
 
-    def far_field_series(key):
-        """Return a valid 1-D frequency series, or None for scalar/invalid data."""
+    def raw_far_field_series(key):
+        """Return a valid stored 1-D frequency series without deriving values."""
         values = far_field.get(key)
         eval_freqs = far_field.get("frequency_ghz")
         if values is None or eval_freqs is None:
@@ -687,11 +687,40 @@ def create_result_plot_set(
             return None
         return eval_freqs, values
 
-    def draw_far_curve(axis, key, title, ylabel, color):
+    def far_field_series(key):
+        """Return stored data or reconstruct gain from valid power-derived metrics."""
+        series = raw_far_field_series(key)
+        if series is not None:
+            return series
+        derivation = {
+            "gain_dbi": "radiation_efficiency_percent",
+            "realized_gain_dbi": "total_efficiency_percent",
+        }.get(key)
+        if derivation is None:
+            return None
+        directivity_series = raw_far_field_series("directivity_dbi")
+        efficiency_series = raw_far_field_series(derivation)
+        if directivity_series is None or efficiency_series is None:
+            return None
+        eval_freqs, directivity_values = directivity_series
+        efficiency_freqs, efficiency_percent = efficiency_series
+        if not np.array_equal(eval_freqs, efficiency_freqs):
+            return None
+        # G = D * eta_rad; G_realized = D * eta_total. Work in dB
+        # while retaining the same power-ratio definition as the source metrics.
+        with np.errstate(divide="ignore", invalid="ignore"):
+            values = directivity_values + 10.0 * np.log10(
+                np.maximum(efficiency_percent, 0.0) / 100.0
+            )
+        values = np.where(np.isfinite(values), values, -300.0)
+        return eval_freqs, values
+
+    def draw_far_curve(axis, key, title, ylabel, color, label=None):
         series = far_field_series(key)
         if series is not None:
             eval_freqs, values = series
-            axis.plot(eval_freqs, values, color=color, linewidth=1.8)
+            axis.plot(eval_freqs, values, color=color, linewidth=1.8,
+                      label=label)
         else:
             axis.text(0.5, 0.5, "Far-field data unavailable", ha="center",
                       va="center", transform=axis.transAxes)
@@ -795,7 +824,7 @@ def create_result_plot_set(
     draw_far_curve(axes[6], "directivity_dbi", "Directivity",
                    "Directivity (dBi)", "#39c6a5")
     draw_far_curve(axes[7], "total_efficiency_percent", "Total efficiency",
-                   "Efficiency (%)", "#b38cff")
+                   "Efficiency (%)", "#b38cff", label="Total efficiency")
     efficiency_values = []
     for key, style, color, label in (
         ("radiation_efficiency_percent", "--", "#f2f4f7", "Radiation efficiency"),
@@ -814,7 +843,7 @@ def create_result_plot_set(
             efficiency_values.extend(series[1].tolist())
     efficiency_max = max(efficiency_values + [100.0])
     axes[7].set_ylim(0, max(105.0, 5.0 * np.ceil(efficiency_max / 5.0)))
-    if efficiency_values:
+    if axes[7].get_legend_handles_labels()[0]:
         axes[7].legend(fontsize=6)
     for axis in (axes[0], axes[1], axes[2], axes[3], axes[5], axes[6], axes[7]):
         axis.grid(True, alpha=0.28)
