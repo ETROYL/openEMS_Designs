@@ -24,7 +24,7 @@ from PySide6.QtGui import QGuiApplication, QIcon, QPixmap
 from PySide6.QtWidgets import (
     QCheckBox, QComboBox, QDoubleSpinBox, QFileDialog, QFormLayout, QGroupBox, QHBoxLayout, QLabel, QMainWindow,
     QMessageBox, QPlainTextEdit, QProgressBar, QPushButton, QRadioButton, QScrollArea,
-    QSpinBox, QSizePolicy, QTabWidget, QToolBar, QVBoxLayout, QWidget,
+    QSpinBox, QSizePolicy, QSplitter, QTabWidget, QToolBar, QVBoxLayout, QWidget,
 )
 
 
@@ -568,43 +568,62 @@ class MainWindow(QMainWindow):
 
     def _results_page(self) -> QWidget:
         page = QWidget()
-        layout = QVBoxLayout(page)
-        layout.setContentsMargins(8, 6, 8, 6)
-        layout.setSpacing(4)
+        page_layout = QHBoxLayout(page)
+        page_layout.setContentsMargins(8, 6, 8, 6)
+        page_layout.setSpacing(8)
+
+        splitter = QSplitter(Qt.Orientation.Horizontal)
+        splitter.setChildrenCollapsible(False)
+        splitter.setHandleWidth(5)
+
+        # Left control rail: keep operational controls compact while the plot
+        # receives most of the available horizontal space.
+        controls_panel = QWidget()
+        controls_panel.setMinimumWidth(210)
+        controls_panel.setMaximumWidth(420)
+        controls = QVBoxLayout(controls_panel)
+        controls.setContentsMargins(4, 4, 4, 4)
+        controls.setSpacing(7)
 
         heading = QLabel("Simulation results")
         heading.setStyleSheet("font-size: 18px; font-weight: 600;")
         self.results_status = QLabel("Run an FDTD simulation first.")
         self.results_status.setWordWrap(True)
-        self.results_status.setMaximumHeight(38)
+        self.results_status.setMaximumHeight(90)
         self.results_summary = QLabel("Performance metrics will appear after post-processing.")
         self.results_summary.setWordWrap(True)
-        self.results_summary.setMaximumHeight(58)
+        self.results_summary.setMaximumHeight(180)
         self.results_summary.setTextInteractionFlags(Qt.TextInteractionFlag.TextSelectableByMouse)
 
-        results_actions = QHBoxLayout()
+        results_actions = QVBoxLayout()
+        results_actions.setSpacing(5)
         self.open_results_button = QPushButton("Open existing results folder…")
         self.open_results_button.setToolTip("Load a previously completed simulation output directory.")
+        self.open_results_button.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Preferred)
         self.open_results_button.clicked.connect(self.open_existing_results)
         self.run_postprocess_button = QPushButton("Run post-processing")
         self.run_postprocess_button.setEnabled(False)
+        self.run_postprocess_button.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Preferred)
         self.run_postprocess_button.clicked.connect(self.start_postprocessing)
         results_actions.addWidget(self.open_results_button)
         results_actions.addWidget(self.run_postprocess_button)
-        results_actions.addStretch(1)
 
-        plot_controls = QHBoxLayout()
+        plot_controls = QVBoxLayout()
+        plot_controls.setSpacing(4)
         plot_controls.addWidget(QLabel("Plot:"))
         self.results_plot_combo = QComboBox()
-        self.results_plot_combo.setMinimumWidth(260)
+        self.results_plot_combo.setMinimumContentsLength(12)
+        self.results_plot_combo.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Fixed)
         self.results_plot_combo.addItem("Waiting for simulation results…", "")
         self.results_plot_combo.setEnabled(False)
         self.results_plot_combo.currentIndexChanged.connect(self._display_selected_result_plot)
         plot_controls.addWidget(self.results_plot_combo)
-        plot_controls.addStretch(1)
 
-        pattern_controls = QHBoxLayout()
-        pattern_controls.addWidget(QLabel("Radiation pattern frequency:"))
+        pattern_controls = QVBoxLayout()
+        pattern_controls.setSpacing(4)
+        pattern_label = QLabel("Radiation pattern frequency:")
+        pattern_label.setWordWrap(True)
+        pattern_controls.addWidget(pattern_label)
         self.pattern_frequency_spin = QDoubleSpinBox()
         self.pattern_frequency_spin.setDecimals(6)
         self.pattern_frequency_spin.setRange(0.000001, 1.0e6)
@@ -613,21 +632,37 @@ class MainWindow(QMainWindow):
         self.pattern_frequency_spin.setToolTip(
             "Choose any frequency covered by the recorded far-field simulation bands."
         )
+        self.pattern_frequency_spin.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Fixed)
         self.update_pattern_button = QPushButton("Update pattern")
         self.update_pattern_button.setEnabled(False)
+        self.update_pattern_button.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Preferred)
         self.update_pattern_button.setToolTip(
             "Recalculate only the selected far-field pattern and refresh the 2×4 overview."
         )
         self.update_pattern_button.clicked.connect(self._request_radiation_pattern_update)
         pattern_controls.addWidget(self.pattern_frequency_spin)
         pattern_controls.addWidget(self.update_pattern_button)
-        pattern_controls.addStretch(1)
 
         self.results_log = QPlainTextEdit()
         self.results_log.setReadOnly(True)
-        self.results_log.setMaximumHeight(64)
+        self.results_log.setMaximumHeight(150)
+        self.results_log.setMinimumHeight(72)
         self.results_log.setPlaceholderText("Post-processing output…")
 
+        controls.addWidget(heading)
+        controls.addWidget(self.results_status)
+        controls.addWidget(self.results_summary)
+        controls.addLayout(results_actions)
+        controls.addLayout(plot_controls)
+        controls.addLayout(pattern_controls)
+        controls.addWidget(QLabel("Post-processing log:"))
+        controls.addWidget(self.results_log)
+        controls.addStretch(1)
+
+        # Right plot canvas expands to approximately 80% of the Results page.
+        plot_panel = QWidget()
+        plot_layout = QVBoxLayout(plot_panel)
+        plot_layout.setContentsMargins(0, 0, 0, 0)
         self.s11_plot_label = QLabel("Integrated results overview will appear here.")
         self.s11_plot_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
         self.s11_plot_label.setMinimumSize(320, 260)
@@ -637,18 +672,18 @@ class MainWindow(QMainWindow):
         self.s11_plot_label.setStyleSheet(
             "background: #171b22; border: 1px solid #343d4a; border-radius: 6px;"
         )
+        plot_layout.addWidget(self.s11_plot_label, 1)
+
         # Retained as a compatibility target for older single-band result paths.
         self.radiation_plot_label = QLabel()
         self.radiation_plot_label.hide()
 
-        layout.addWidget(heading)
-        layout.addLayout(results_actions)
-        layout.addWidget(self.results_status)
-        layout.addWidget(self.results_summary)
-        layout.addLayout(plot_controls)
-        layout.addLayout(pattern_controls)
-        layout.addWidget(self.results_log)
-        layout.addWidget(self.s11_plot_label, 1)
+        splitter.addWidget(controls_panel)
+        splitter.addWidget(plot_panel)
+        splitter.setStretchFactor(0, 1)
+        splitter.setStretchFactor(1, 4)
+        splitter.setSizes([1, 4])
+        page_layout.addWidget(splitter)
         return page
 
     @staticmethod
