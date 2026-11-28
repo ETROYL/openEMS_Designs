@@ -181,7 +181,8 @@ class CandidateEvaluator:
                     n_points=n_points,
                     end_criteria_db=end_criteria_db,
                     max_timesteps=max_timesteps,
-                    threads=max(1, int(os.environ.get("EM_THREADS", "1"))),
+                    threads=None,
+                    workers=None,
                     active_vars=params,
                 )
 
