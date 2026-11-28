@@ -294,6 +294,13 @@ def _run_band_task(task):
         index, config_path, band_dir, band, end_criteria, timestep_limit,
         thread_count, variables, far_field,
     ) = task
+    thread_value = str(int(thread_count))
+    os.environ["EM_THREADS"] = thread_value
+    os.environ["OMP_NUM_THREADS"] = thread_value
+    os.environ["OPENBLAS_NUM_THREADS"] = "1"
+    os.environ["MKL_NUM_THREADS"] = "1"
+    os.environ["NUMEXPR_NUM_THREADS"] = "1"
+    os.environ["VECLIB_MAXIMUM_THREADS"] = "1"
     result = _run_band(
         config_path, band_dir, band, end_criteria, timestep_limit,
         thread_count, active_vars=variables, record_far_field=far_field,
