@@ -8,7 +8,6 @@ from __future__ import annotations
 
 import argparse
 import json
-import os
 from pathlib import Path
 import sys
 
@@ -95,6 +94,11 @@ def run_mesh_diagnostic(config_path, output_dir, fstart_ghz, fstop_ghz,
         "fdtd_timesteps_requested": 0,
         "solver_mode": "setup_only",
         "configuration": str(config_path),
+        "solver_setup": {
+            "end_criteria": 0.0,
+            "maximum_timesteps": 1,
+            "time_stepping_enabled": False,
+        },
     })
 
     csx.Write2XML(str(output_dir / "geometry.xml"))
