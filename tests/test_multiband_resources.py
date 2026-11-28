@@ -1,7 +1,9 @@
 import unittest
 from unittest.mock import patch
 
-from multiband_fdtd.resources import allocate_band_resources
+from multiband_fdtd.resources import (
+    allocate_band_resources, candidate_workers_for_allocation,
+)
 
 
 class BandResourceAllocationTests(unittest.TestCase):
@@ -41,6 +43,26 @@ class BandResourceAllocationTests(unittest.TestCase):
     def test_requires_two_logical_cpus(self):
         with self.assertRaisesRegex(ValueError, "At least 2 logical CPUs"):
             allocate_band_resources(1, logical_cpus=1)
+
+    def test_candidate_concurrency_shares_the_interval_cpu_budget(self):
+        cases = {
+            1: 4,   # 1 interval × 4 threads -> 4 candidates
+            2: 2,   # 2 intervals × 4 threads -> 2 candidates
+            3: 1,   # 3 intervals × 4 threads -> 1 candidate
+            4: 1,   # 4 intervals × 4 threads -> 1 candidate
+            5: 1,   # 5 intervals × 2 threads -> 1 candidate
+            7: 1,
+            9: 1,
+        }
+        for interval_count, expected_workers in cases.items():
+            with self.subTest(interval_count=interval_count):
+                allocation = allocate_band_resources(
+                    interval_count, logical_cpus=16
+                )
+                self.assertEqual(
+                    candidate_workers_for_allocation(allocation),
+                    expected_workers,
+                )
 
     def test_detects_logical_cpu_affinity(self):
         with patch(
