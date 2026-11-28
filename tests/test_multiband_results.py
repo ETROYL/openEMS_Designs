@@ -8,8 +8,9 @@ import unittest
 from pathlib import Path
 
 from multiband_fdtd.results import (
-    _draw_radiation_pattern, analyze_broadband_csv, calculate_far_field,
-    process_results, wrapped_phase_degrees,
+    _calculate_efficiencies, _draw_radiation_pattern, _power_to_dbi,
+    analyze_broadband_csv, calculate_far_field, process_results,
+    wrapped_phase_degrees,
   )
 
 
@@ -86,6 +87,25 @@ class BroadbandResultsTests(unittest.TestCase):
             self.assertIn("wrapped ±180°", catalog[5]["label"])
             self.assertTrue((output_dir / "s11_phase.png").is_file())
             self.assertEqual(result["sample_count"], 6)
+
+    def test_efficiencies_are_derived_from_simulated_power(self):
+        values = _calculate_efficiencies(prad=6.0, p_acc=8.0, p_inc=10.0)
+        self.assertAlmostEqual(values["radiation"], 0.75)
+        self.assertAlmostEqual(values["mismatch"], 0.8)
+        self.assertAlmostEqual(values["total"], 0.6)
+        self.assertAlmostEqual(
+            values["radiation"] * values["mismatch"], values["total"]
+        )
+
+    def test_efficiency_power_balance_rejects_invalid_power(self):
+        with self.assertRaisesRegex(ValueError, "power balance"):
+            _calculate_efficiencies(prad=1.0, p_acc=0.0, p_inc=2.0)
+        with self.assertRaisesRegex(ValueError, "finite"):
+            _calculate_efficiencies(prad=float("nan"), p_acc=1.0, p_inc=2.0)
+
+    def test_linear_gain_conversion_uses_power_decibels(self):
+        self.assertAlmostEqual(_power_to_dbi(10.0), 10.0)
+        self.assertAlmostEqual(_power_to_dbi(1.0), 0.0)
 
     def test_s11_phase_is_wrapped_to_principal_degrees(self):
         import numpy as np
