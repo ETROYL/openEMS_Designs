@@ -1840,6 +1840,7 @@ class MainWindow(QMainWindow):
         self.results_log.clear()
         self.results_log.appendPlainText("Starting post-processing of the latest simulation…")
         self.run_postprocess_button.setEnabled(False)
+        self.update_pattern_button.setEnabled(False)
         self.run_simulation_button.setEnabled(False)
         self.results_status.setText(f"Processing: {self.last_simulation_dir}")
         if self.last_simulation_multiband:
