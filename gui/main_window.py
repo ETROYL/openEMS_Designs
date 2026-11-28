@@ -1462,13 +1462,11 @@ class MainWindow(QMainWindow):
         self.run_postprocess_button.setEnabled(False)
         self.results_status.setText("Waiting for the FDTD simulation to complete successfully.")
         self.results_summary.setText("Performance metrics will appear after post-processing.")
-        self.radiation_plot_label.setVisible(True)
         self._s11_original_pixmap = QPixmap()
         self._radiation_original_pixmap = QPixmap()
-        self.s11_plot_label.setText("S-parameter / impedance plot will appear here.")
+        self._set_result_plot_catalog([])
+        self.s11_plot_label.setText("S11 magnitude (dB) will appear here.")
         self.s11_plot_label.setPixmap(QPixmap())
-        self.radiation_plot_label.setText("Radiation / far-field plot will appear here.")
-        self.radiation_plot_label.setPixmap(QPixmap())
         self.simulation_log.clear()
         self.simulation_log.appendPlainText("Launching standalone FDTD simulation…")
         self._set_simulation_status("SIMULATION RUNNING", "running")
@@ -1566,11 +1564,12 @@ class MainWindow(QMainWindow):
                             ).get("far_field_recorded"))
                         except (OSError, ValueError, TypeError):
                             pass
-                    self.radiation_plot_label.setVisible(far_field_available)
-                    self.results_plots_widget.setMinimumHeight(1460 if far_field_available else 740)
-                    self._load_result_plot(
-                        self.s11_plot_label, self.last_simulation_dir / "s11_plot.png"
-                    )
+                    initial_plot = self.last_simulation_dir / "s11_plot.png"
+                    if initial_plot.is_file():
+                        self._set_result_plot_catalog([{
+                            "label": "|S11| magnitude (dB)",
+                            "path": str(initial_plot),
+                        }])
                     self.results_status.setText(
                         "Broadband response is ready. Run post-processing for matching metrics"
                         + (" and full far-field characteristics." if far_field_available
@@ -1580,7 +1579,6 @@ class MainWindow(QMainWindow):
                 else:
                     self.run_postprocess_button.setEnabled(True)
                     self.run_postprocess_button.setToolTip("")
-                    self.radiation_plot_label.setVisible(True)
                     self.results_status.setText(f"Ready to post-process: {self.last_simulation_dir}")
                 self._set_simulation_status("SIMULATION COMPLETED SUCCESSFULLY", "success")
                 self.statusBar().showMessage("FDTD simulation completed")
@@ -1813,6 +1811,7 @@ class MainWindow(QMainWindow):
                 entries = []
         if not entries:
             for label, filename in (
+                ("|S11| magnitude (dB)", "s11_plot.png"),
                 ("|S11| magnitude (dB)", "multiband_results.png"),
                 ("Integrated overview (2×2)", "integrated_overview.png"),
                 ("Radiation results", "radiation_plot.png"),
