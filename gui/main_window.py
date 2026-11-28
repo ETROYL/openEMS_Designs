@@ -80,6 +80,8 @@ class MainWindow(QMainWindow):
         self._optimization_kill_requested = False
         self._s11_original_pixmap = QPixmap()
         self._radiation_original_pixmap = QPixmap()
+        self._result_plot_catalog: list[dict[str, str]] = []
+        self._result_plot_directory: Path | None = None
         self._postprocess_process = QProcess(self)
         self._postprocess_process.readyReadStandardOutput.connect(self._postprocess_stdout)
         self._postprocess_process.readyReadStandardError.connect(self._postprocess_stderr)
@@ -536,23 +538,22 @@ class MainWindow(QMainWindow):
     def _results_page(self) -> QWidget:
         page = QWidget()
         layout = QVBoxLayout(page)
+        layout.setContentsMargins(8, 6, 8, 6)
+        layout.setSpacing(4)
+
         heading = QLabel("Simulation results")
-        heading.setStyleSheet("font-size: 20px; font-weight: 600;")
-        description = QLabel(
-            "Review the broadband response, antenna matching metrics and radiation results "
-            "available for the most recent successful simulation."
-        )
-        description.setWordWrap(True)
+        heading.setStyleSheet("font-size: 18px; font-weight: 600;")
         self.results_status = QLabel("Run an FDTD simulation first.")
         self.results_status.setWordWrap(True)
+        self.results_status.setMaximumHeight(38)
         self.results_summary = QLabel("Performance metrics will appear after post-processing.")
         self.results_summary.setWordWrap(True)
+        self.results_summary.setMaximumHeight(58)
         self.results_summary.setTextInteractionFlags(Qt.TextInteractionFlag.TextSelectableByMouse)
+
         results_actions = QHBoxLayout()
         self.open_results_button = QPushButton("Open existing results folder…")
-        self.open_results_button.setToolTip(
-            "Load a previously completed simulation output directory."
-        )
+        self.open_results_button.setToolTip("Load a previously completed simulation output directory.")
         self.open_results_button.clicked.connect(self.open_existing_results)
         self.run_postprocess_button = QPushButton("Run post-processing")
         self.run_postprocess_button.setEnabled(False)
@@ -560,47 +561,42 @@ class MainWindow(QMainWindow):
         results_actions.addWidget(self.open_results_button)
         results_actions.addWidget(self.run_postprocess_button)
         results_actions.addStretch(1)
+
+        plot_controls = QHBoxLayout()
+        plot_controls.addWidget(QLabel("Plot:"))
+        self.results_plot_combo = QComboBox()
+        self.results_plot_combo.setMinimumWidth(260)
+        self.results_plot_combo.addItem("Waiting for simulation results…", "")
+        self.results_plot_combo.setEnabled(False)
+        self.results_plot_combo.currentIndexChanged.connect(self._display_selected_result_plot)
+        plot_controls.addWidget(self.results_plot_combo)
+        plot_controls.addStretch(1)
+
         self.results_log = QPlainTextEdit()
         self.results_log.setReadOnly(True)
-        self.results_log.setMaximumHeight(150)
-        self.results_log.setPlaceholderText("Post-processing output will appear here…")
+        self.results_log.setMaximumHeight(64)
+        self.results_log.setPlaceholderText("Post-processing output…")
 
-        self.s11_plot_label = QLabel("S-parameter / impedance plot will appear here.")
+        self.s11_plot_label = QLabel("S11 magnitude (dB) will appear here.")
         self.s11_plot_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        self.s11_plot_label.setMinimumWidth(400)
-        self.s11_plot_label.setMinimumHeight(720)
+        self.s11_plot_label.setMinimumSize(320, 260)
         self.s11_plot_label.setSizePolicy(
             QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Expanding
         )
-        self.s11_plot_label.setStyleSheet("background: palette(alternate-base); border-radius: 6px;")
-        self.radiation_plot_label = QLabel("Radiation / far-field plot will appear here.")
-        self.radiation_plot_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        self.radiation_plot_label.setMinimumWidth(400)
-        self.radiation_plot_label.setMinimumHeight(720)
-        self.radiation_plot_label.setSizePolicy(
-            QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Expanding
+        self.s11_plot_label.setStyleSheet(
+            "background: palette(alternate-base); border-radius: 6px;"
         )
-        self.radiation_plot_label.setStyleSheet("background: palette(alternate-base); border-radius: 6px;")
-
-        plots_widget = QWidget()
-        self.results_plots_widget = plots_widget
-        plots_widget.setMinimumHeight(1460)
-        plots_layout = QVBoxLayout(plots_widget)
-        plots_layout.setContentsMargins(18, 18, 18, 18)
-        plots_layout.setSpacing(18)
-        plots_layout.addWidget(self.s11_plot_label, 1)
-        plots_layout.addWidget(self.radiation_plot_label, 1)
-        scroll = QScrollArea()
-        scroll.setWidgetResizable(True)
-        scroll.setWidget(plots_widget)
+        # Retained as a compatibility target for older single-band result paths.
+        self.radiation_plot_label = QLabel()
+        self.radiation_plot_label.hide()
 
         layout.addWidget(heading)
-        layout.addWidget(description)
+        layout.addLayout(results_actions)
         layout.addWidget(self.results_status)
         layout.addWidget(self.results_summary)
-        layout.addLayout(results_actions)
+        layout.addLayout(plot_controls)
         layout.addWidget(self.results_log)
-        layout.addWidget(scroll, 1)
+        layout.addWidget(self.s11_plot_label, 1)
         return page
 
     @staticmethod
@@ -1637,20 +1633,7 @@ class MainWindow(QMainWindow):
                 far_field_available = bool(json.loads(run_manifest.read_text(encoding="utf-8")).get("far_field_recorded"))
             except (OSError, ValueError, TypeError):
                 far_field_available = False
-        self.radiation_plot_label.setVisible(far_field_available)
-        self.results_plots_widget.setMinimumHeight(1460 if far_field_available else 740)
-        self._load_result_plot(self.s11_plot_label, output_dir / "multiband_results.png")
-        radiation_path = output_dir / "radiation_plot.png"
-        if far_field_available and radiation_path.is_file():
-            self._load_result_plot(self.radiation_plot_label, radiation_path)
-        else:
-            self._radiation_original_pixmap = QPixmap()
-            self.radiation_plot_label.setPixmap(QPixmap())
-            self.radiation_plot_label.setText(
-                "Far-field results are unavailable for this simulation."
-            )
-        if not (output_dir / "multiband_results.png").is_file():
-            self._load_result_plot(self.s11_plot_label, output_dir / "s11_plot.png")
+        self._load_result_catalog(output_dir)
 
         metrics_path = output_dir / "multiband_metrics.json"
         if metrics_path.is_file():
@@ -1744,22 +1727,23 @@ class MainWindow(QMainWindow):
         self.run_postprocess_button.setEnabled(can_process)
         if exit_code == 0 and self.last_simulation_dir:
             if self.last_simulation_multiband:
-                self._load_result_plot(
-                    self.s11_plot_label, self.last_simulation_dir / "multiband_results.png"
-                )
+                self._load_result_catalog(self.last_simulation_dir)
                 self._show_multiband_metrics(self.last_simulation_dir / "multiband_metrics.json")
-                radiation_path = self.last_simulation_dir / "radiation_plot.png"
-                self.radiation_plot_label.setVisible(radiation_path.is_file())
-                self.results_plots_widget.setMinimumHeight(1460 if radiation_path.is_file() else 740)
-                if radiation_path.is_file():
-                    self._load_result_plot(self.radiation_plot_label, radiation_path)
                 self.results_status.setText(
-                    f"Broadband post-processing complete. Report files saved in: {self.last_simulation_dir}"
+                    f"Broadband post-processing complete. Results: {self.last_simulation_dir}"
                 )
             else:
-                self._load_result_plot(self.s11_plot_label, self.last_simulation_dir / "s11_plot.png")
-                self._load_result_plot(self.radiation_plot_label, self.last_simulation_dir / "radiation_plot.png")
-                self.results_status.setText(f"Post-processing complete. Results saved in: {self.last_simulation_dir}")
+                legacy_plots = []
+                for label, filename in (
+                    ("S-parameter response", "s11_plot.png"),
+                    ("Radiation pattern", "radiation_plot.png"),
+                ):
+                    if (self.last_simulation_dir / filename).is_file():
+                        legacy_plots.append({
+                            "label": label, "path": str(self.last_simulation_dir / filename)
+                        })
+                self._set_result_plot_catalog(legacy_plots)
+                self.results_status.setText(f"Post-processing complete. Results: {self.last_simulation_dir}")
             self.statusBar().showMessage("Post-processing completed")
         else:
             self.results_status.setText("Post-processing failed. See the log for details.")
@@ -1813,33 +1797,84 @@ class MainWindow(QMainWindow):
         except (OSError, ValueError, KeyError, TypeError) as exc:
             self.results_summary.setText(f"Could not load broadband performance metrics: {exc}")
 
-    def _load_result_plot(self, label: QLabel, image_path: Path) -> None:
-        pixmap = QPixmap(str(image_path))
-        if pixmap.isNull():
-            label.setPixmap(QPixmap())
-            label.setText(f"Could not load plot: {image_path}")
-            return
-        if label is self.s11_plot_label:
-            self._s11_original_pixmap = pixmap
+    def _load_result_catalog(self, results_dir: Path) -> None:
+        catalog_path = results_dir / "plot_catalog.json"
+        entries = []
+        if catalog_path.is_file():
+            try:
+                raw = json.loads(catalog_path.read_text(encoding="utf-8"))
+                for item in raw:
+                    image_path = Path(item.get("path") or (results_dir / item["filename"]))
+                    if not image_path.is_absolute():
+                        image_path = results_dir / image_path
+                    if image_path.is_file():
+                        entries.append({"label": str(item["label"]), "path": str(image_path)})
+            except (OSError, ValueError, TypeError, KeyError):
+                entries = []
+        if not entries:
+            for label, filename in (
+                ("|S11| magnitude (dB)", "multiband_results.png"),
+                ("Integrated overview (2×2)", "integrated_overview.png"),
+                ("Radiation results", "radiation_plot.png"),
+            ):
+                image_path = results_dir / filename
+                if image_path.is_file():
+                    entries.append({"label": label, "path": str(image_path)})
+        self._set_result_plot_catalog(entries)
+
+    def _set_result_plot_catalog(self, entries: list[dict[str, str]]) -> None:
+        self._result_plot_catalog = list(entries)
+        self._result_plot_directory = (
+            Path(entries[0]["path"]).parent if entries else None
+        )
+        self.results_plot_combo.blockSignals(True)
+        self.results_plot_combo.clear()
+        if entries:
+            for item in entries:
+                self.results_plot_combo.addItem(item["label"], item["path"])
+            self.results_plot_combo.setEnabled(True)
+            # The first catalog item is always the S11 magnitude plot.
+            self.results_plot_combo.setCurrentIndex(0)
         else:
-            self._radiation_original_pixmap = pixmap
-        label.setText("")
+            self.results_plot_combo.addItem("No plots available", "")
+            self.results_plot_combo.setEnabled(False)
+        self.results_plot_combo.blockSignals(False)
+        self._display_selected_result_plot()
+
+    def _display_selected_result_plot(self, *_args) -> None:
+        image_path = self.results_plot_combo.currentData()
+        pixmap = QPixmap(str(image_path)) if image_path else QPixmap()
+        self._s11_original_pixmap = pixmap
+        if pixmap.isNull():
+            self.s11_plot_label.setPixmap(QPixmap())
+            self.s11_plot_label.setText(
+                "Select a completed simulation or run post-processing to generate plots."
+            )
+        else:
+            self.s11_plot_label.setText("")
+        self._refresh_result_plots()
+
+    def _load_result_plot(self, label: QLabel, image_path: Path) -> None:
+        """Compatibility loader for legacy single-band result images."""
+        pixmap = QPixmap(str(image_path))
+        self._s11_original_pixmap = pixmap
+        if pixmap.isNull():
+            self.s11_plot_label.setText(f"Could not load plot: {image_path}")
+        else:
+            self.s11_plot_label.setText("")
         self._refresh_result_plots()
 
     def _refresh_result_plots(self) -> None:
-        for label, original in (
-            (self.s11_plot_label, self._s11_original_pixmap),
-            (self.radiation_plot_label, self._radiation_original_pixmap),
-        ):
-            if original.isNull():
-                continue
-            available_width = max(1, label.width() - 24)
-            available_height = max(1, label.height() - 24)
-            label.setPixmap(original.scaled(
-                available_width, available_height,
-                Qt.AspectRatioMode.KeepAspectRatio,
-                Qt.TransformationMode.SmoothTransformation,
-            ))
+        original = self._s11_original_pixmap
+        if original.isNull() or not hasattr(self, "s11_plot_label"):
+            return
+        available_width = max(1, self.s11_plot_label.width() - 20)
+        available_height = max(1, self.s11_plot_label.height() - 20)
+        self.s11_plot_label.setPixmap(original.scaled(
+            available_width, available_height,
+            Qt.AspectRatioMode.KeepAspectRatio,
+            Qt.TransformationMode.SmoothTransformation,
+        ))
 
     def resizeEvent(self, event) -> None:
         super().resizeEvent(event)
