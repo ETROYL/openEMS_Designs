@@ -255,37 +255,67 @@ def calculate_far_field(csv_path: str | Path, simulation_dir: str | Path,
     matplotlib.use("Agg")
     import matplotlib.pyplot as plt
 
+    _dark_plot_theme()
     e_norm = np.asarray(pattern_result.E_norm[0])
     e_db = 20.0 * np.log10(e_norm / max(float(np.max(e_norm)), 1e-15) + 1e-12)
-    figure = plt.figure(figsize=(14, 10))
-    polar = figure.add_subplot(221, projection="polar")
     theta_rad = np.deg2rad(theta)
-    polar.plot(theta_rad, e_db[:, 0], linewidth=1.8, label="E-plane (phi=0°)")
-    polar.plot(theta_rad, e_db[:, 1], linestyle="--", linewidth=1.8, label="H-plane (phi=90°)")
+    pattern_frequency_ghz = float(resonance_ghz)
+    figure = plt.figure(figsize=(10, 8))
+    polar = figure.add_subplot(111, projection="polar")
+    polar.plot(theta_rad, e_db[:, 0], color="#3995ff", linewidth=1.8,
+               label="E-plane (phi=0°)")
+    polar.plot(theta_rad, e_db[:, 1], color="#ff5252", linewidth=1.8,
+               label="H-plane (phi=90°)")
     polar.set_rmin(-30)
     polar.set_rmax(0)
-    polar.set_title(f"Radiation pattern at {resonance_ghz:.4g} GHz (normalized dB)")
-    polar.legend(loc="lower right", fontsize="small")
+    polar.set_title(f"Radiation pattern at {pattern_frequency_ghz:.4g} GHz")
+    polar.legend(loc="lower right")
+    figure.tight_layout()
+    pattern_path = output_dir / "radiation_pattern.png"
+    figure.savefig(pattern_path, dpi=190, bbox_inches="tight")
+    plt.close(figure)
 
-    eval_x = eval_freqs_ghz
+    metrics = {
+        "radiation_efficiency_percent": 100.0,
+        "radiation_efficiency_status": "assumed_ideal_lossless_PEC",
+        "frequency_ghz": [float(x) for x in eval_freqs_ghz],
+        "directivity_dbi": [float(x) for x in directivity],
+        "realized_gain_dbi": [float(x) for x in realized_gain],
+        "total_efficiency_percent": [float(x) for x in total_efficiency],
+        "radiation_pattern_frequency_ghz": pattern_frequency_ghz,
+        "radiation_pattern_theta_deg": [float(x) for x in theta],
+        "radiation_pattern_e_plane_db": [float(x) for x in e_db[:, 0]],
+        "radiation_pattern_h_plane_db": [float(x) for x in e_db[:, 1]],
+        "radiation_plot": str(pattern_path),
+        "radiation_pattern_plot": str(pattern_path),
+    }
+
+    # Legacy combined image retained for compatibility with existing result folders.
+    figure = plt.figure(figsize=(14, 10))
+    polar = figure.add_subplot(221, projection="polar")
+    polar.plot(theta_rad, e_db[:, 0], color="#3995ff", linewidth=1.8, label="E-plane")
+    polar.plot(theta_rad, e_db[:, 1], color="#ff5252", linewidth=1.8, label="H-plane")
+    polar.set_rmin(-30)
+    polar.set_rmax(0)
+    polar.set_title(f"Radiation pattern at {pattern_frequency_ghz:.4g} GHz")
+    polar.legend(loc="lower right", fontsize="small")
     ax = figure.add_subplot(222)
-    ax.plot(eval_x, directivity, "o-", linewidth=1.6)
+    ax.plot(eval_freqs_ghz, directivity, color="#39c6a5", marker="o", linewidth=1.6)
     ax.set_title("Peak directivity")
     ax.set_ylabel("Directivity (dBi)")
     ax.set_xlabel("Frequency (GHz)")
     ax.grid(True, alpha=0.3)
-
     ax = figure.add_subplot(223)
-    ax.plot(eval_x, realized_gain, "s-", linewidth=1.6)
+    ax.plot(eval_freqs_ghz, realized_gain, color="#ff9f43", marker="s", linewidth=1.6)
     ax.set_title("Realized gain (ideal PEC model)")
     ax.set_ylabel("Realized gain (dBi)")
     ax.set_xlabel("Frequency (GHz)")
     ax.grid(True, alpha=0.3)
-
     ax = figure.add_subplot(224)
-    ax.plot(eval_x, np.full(len(eval_x), 100.0), "--",
-            label="Assumed radiation efficiency (PEC)")
-    ax.plot(eval_x, total_efficiency, "^-", label="Total efficiency incl. mismatch")
+    ax.plot(eval_freqs_ghz, np.full(len(eval_freqs_ghz), 100.0), "--",
+            color="#f2f4f7", label="100% radiation efficiency (PEC)")
+    ax.plot(eval_freqs_ghz, total_efficiency, color="#b38cff", marker="^",
+            label="Total efficiency incl. mismatch")
     ax.set_title("Efficiency")
     ax.set_ylabel("Efficiency (%)")
     ax.set_xlabel("Frequency (GHz)")
@@ -296,60 +326,6 @@ def calculate_far_field(csv_path: str | Path, simulation_dir: str | Path,
     radiation_plot = output_dir / "radiation_plot.png"
     figure.savefig(radiation_plot, dpi=190, bbox_inches="tight")
     plt.close(figure)
-
-    metrics = {
-        "radiation_efficiency_percent": 100.0,
-        "radiation_efficiency_status": "assumed_ideal_lossless_PEC",
-        "frequency_ghz": [float(x) for x in eval_freqs_ghz],
-        "directivity_dbi": [float(x) for x in directivity],
-        "realized_gain_dbi": [float(x) for x in realized_gain],
-        "total_efficiency_percent": [float(x) for x in total_efficiency],
-        "radiation_pattern_frequency_ghz": resonance_ghz,
-        "radiation_plot": str(radiation_plot),
-    }
-
-    # Separate plot assets let the GUI display each result at full size.
-    def save_curve(filename, title, ylabel, values, *, label=None):
-        fig, axis = plt.subplots(figsize=(12, 7))
-        axis.plot(eval_freqs_ghz, values, linewidth=1.8, label=label)
-        axis.set_title(title)
-        axis.set_xlabel("Frequency (GHz)")
-        axis.set_ylabel(ylabel)
-        axis.grid(True, alpha=0.3)
-        if label:
-            axis.legend()
-        fig.tight_layout()
-        path = output_dir / filename
-        fig.savefig(path, dpi=190, bbox_inches="tight")
-        plt.close(fig)
-        return str(path)
-
-    pattern_figure = plt.figure(figsize=(10, 8))
-    pattern_axis = pattern_figure.add_subplot(111, projection="polar")
-    pattern_axis.plot(theta_rad, e_db[:, 0], linewidth=1.8, label="E-plane (phi=0°)")
-    pattern_axis.plot(theta_rad, e_db[:, 1], linestyle="--", linewidth=1.8,
-                      label="H-plane (phi=90°)")
-    pattern_axis.set_rmin(-30)
-    pattern_axis.set_rmax(0)
-    pattern_axis.set_title(f"Radiation pattern at {resonance_ghz:.4g} GHz")
-    pattern_axis.legend(loc="lower right")
-    pattern_figure.tight_layout()
-    pattern_path = output_dir / "radiation_pattern.png"
-    pattern_figure.savefig(pattern_path, dpi=190, bbox_inches="tight")
-    plt.close(pattern_figure)
-
-    metrics["radiation_pattern_plot"] = str(pattern_path)
-    metrics["directivity_plot"] = save_curve(
-        "directivity_plot.png", "Peak directivity", "Directivity (dBi)", directivity
-    )
-    metrics["realized_gain_plot"] = save_curve(
-        "realized_gain_plot.png", "Realized gain (ideal PEC model)",
-        "Realized gain (dBi)", realized_gain
-    )
-    metrics["efficiency_plot"] = save_curve(
-        "efficiency_plot.png", "Total efficiency", "Efficiency (%)",
-        total_efficiency, label="Total efficiency incl. mismatch"
-    )
 
     metrics_path = output_dir / "far_field_metrics.json"
     metrics_path.write_text(json.dumps(metrics, indent=2), encoding="utf-8")
