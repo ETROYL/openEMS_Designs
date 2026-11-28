@@ -43,6 +43,15 @@ def main() -> int:
 
     import matplotlib.pyplot as plt
 
+    plt.rcParams.update({
+        "figure.facecolor": "#171b22", "axes.facecolor": "#202630",
+        "axes.edgecolor": "#697586", "axes.labelcolor": "#e6eaf0",
+        "text.color": "#f2f4f7", "xtick.color": "#c5ccd6",
+        "ytick.color": "#c5ccd6", "grid.color": "#596273",
+        "legend.facecolor": "#252d38", "legend.edgecolor": "#596273",
+        "savefig.facecolor": "#171b22",
+    })
+
     if not config_path.is_file():
         raise FileNotFoundError(f"Design snapshot does not exist: {config_path}")
     if not sim_dir.is_dir():
@@ -107,6 +116,22 @@ def main() -> int:
 
     if not np.all(np.isfinite(s11_db)):
         raise ValueError("S11 calculation produced non-finite values; check the port recordings.")
+
+    # np.angle returns the principal phase in [-pi, +pi]; do not unwrap it.
+    s11_phase_deg = np.rad2deg(np.angle(s11))
+    fig_phase, ax_phase = plt.subplots(figsize=(12, 6))
+    ax_phase.plot(freq_ghz, s11_phase_deg, color="#b38cff", linewidth=1.8)
+    ax_phase.set_ylim([-180, 180])
+    ax_phase.set_yticks([-180, -90, 0, 90, 180])
+    ax_phase.set_xlabel("Frequency (GHz)")
+    ax_phase.set_ylabel("Phase(S11) (degrees)")
+    ax_phase.set_title("S11 phase (wrapped)")
+    ax_phase.grid(True, alpha=0.28)
+    fig_phase.tight_layout()
+    phase_path = sim_dir / "s11_phase_plot.png"
+    fig_phase.savefig(phase_path, dpi=180, bbox_inches="tight")
+    plt.close(fig_phase)
+    print(f"Saved wrapped S11 phase plot: {phase_path}", flush=True)
 
     fig1, ((ax1, ax3), (ax2, ax4)) = plt.subplots(
         2, 2, figsize=(10, 7), sharex=True
@@ -186,8 +211,8 @@ def main() -> int:
         nf2ff_res.E_norm[0] / np.max(nf2ff_res.E_norm[0]) + 1e-12
     )
     theta_rad = np.deg2rad(theta)
-    ax_polar.plot(theta_rad, e_norm[:, 0], "b-", linewidth=2, label="E-plane (phi=0 deg)")
-    ax_polar.plot(theta_rad, e_norm[:, 1], "r--", linewidth=2, label="H-plane (phi=90 deg)")
+    ax_polar.plot(theta_rad, e_norm[:, 0], color="#3995ff", linewidth=2, label="E-plane (phi=0 deg)")
+    ax_polar.plot(theta_rad, e_norm[:, 1], color="#ff5252", linewidth=2, label="H-plane (phi=90 deg)")
     ax_polar.set_rmin(-30)
     ax_polar.set_rmax(0)
     ax_polar.set_title(f"Radiation pattern at {f_res_ghz:.2f} GHz (dB)", va="bottom")
