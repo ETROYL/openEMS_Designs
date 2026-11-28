@@ -20,7 +20,7 @@ class IntervalPlanRunnerTests(unittest.TestCase):
     def tearDown(self):
         self.temp.cleanup()
 
-    def test_prepares_equal_width_plan_and_persists_it_for_resume(self):
+    def test_prepares_overlapping_plan_and_persists_it_for_resume(self):
         settings = {}
         path, bands, created = _prepare_interval_plan(
             self.config, self.run_dir, settings, (0.1, 1.0), 301,
@@ -29,11 +29,14 @@ class IntervalPlanRunnerTests(unittest.TestCase):
         self.assertTrue(created)
         self.assertTrue(Path(path).is_file())
         self.assertEqual(len(bands), 2)
-        self.assertEqual(sum(band.n_pts for band in bands), 301)
+        self.assertEqual(sum(band.n_pts for band in bands), 336)
         self.assertAlmostEqual(bands[0].fstart_ghz, 0.1)
-        self.assertAlmostEqual(bands[0].fstop_ghz, 0.55)
-        self.assertAlmostEqual(bands[1].fstart_ghz, 0.55)
+        self.assertAlmostEqual(bands[0].fstop_ghz, 0.6)
+        self.assertAlmostEqual(bands[1].fstart_ghz, 0.5)
         self.assertAlmostEqual(bands[1].fstop_ghz, 1.0)
+        self.assertAlmostEqual(
+            bands[0].fstop_ghz - bands[1].fstart_ghz, 0.1
+        )
         self.assertTrue(all(band.fstop_ghz - band.fstart_ghz <= 0.5
                             for band in bands))
 
@@ -43,7 +46,7 @@ class IntervalPlanRunnerTests(unittest.TestCase):
         manifest = json.loads(Path(path).read_text())
         self.assertEqual(
             manifest["candidate_generation"]["sampling_mode"],
-            "equal_total_points",
+            "uniform_frequency_spacing_with_overlap",
         )
 
         reloaded = load_interval_plan(path, n_points=301, config_path=self.config)
