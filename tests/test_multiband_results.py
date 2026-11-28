@@ -9,7 +9,7 @@ from pathlib import Path
 
 from multiband_fdtd.results import (
     _calculate_efficiencies, _draw_radiation_pattern, _power_to_dbi,
-    analyze_broadband_csv, calculate_far_field, process_results,
+    analyze_broadband_csv, calculate_far_field, create_result_plot_set, process_results,
     wrapped_phase_degrees,
   )
 
@@ -132,6 +132,37 @@ class BroadbandResultsTests(unittest.TestCase):
                     simulation_dir,
                 )
 
+
+
+    def test_plot_set_handles_scalar_far_field_metrics(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            csv_path = root / "response.csv"
+            output_dir = root / "report"
+            self._write_csv(csv_path)
+            output_dir.mkdir()
+            far_field = {
+                "frequency_ghz": [1.0, 2.0, 3.0],
+                "gain_dbi": 2.5,
+                "realized_gain_dbi": 2.0,
+                "directivity_dbi": [3.0, 3.1, 3.2],
+                "radiation_efficiency_percent": 90.0,
+                "mismatch_efficiency_percent": [80.0, 85.0, 90.0],
+                "total_efficiency_percent": 75.0,
+                "radiation_pattern_theta_deg": [-180.0, 0.0, 180.0],
+                "radiation_pattern_e_plane_db": [-20.0, 0.0, -20.0],
+                "radiation_pattern_h_plane_db": [-15.0, -3.0, -15.0],
+                "radiation_pattern_frequency_ghz": 2.0,
+            }
+            create_result_plot_set(csv_path, output_dir, far_field)
+            self.assertTrue((output_dir / "integrated_overview.png").is_file())
+            catalog = json.loads(
+                (output_dir / "plot_catalog.json").read_text(encoding="utf-8")
+            )
+            labels = [item["label"] for item in catalog]
+            self.assertIn("Directivity", labels)
+            self.assertNotIn("Gain", labels)
+            self.assertNotIn("Realized gain", labels)
 
     def test_radiation_pattern_uses_supported_polar_axis_limits(self):
         import matplotlib
