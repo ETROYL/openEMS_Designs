@@ -35,7 +35,7 @@ def _prepare_interval_plan(
     output_points: int,
     stop_requested=None,
 ):
-    """Load or create a deterministic equal-width interval plan."""
+    """Load or create a deterministic overlapping interval plan."""
     from multiband_fdtd import build_equal_width_frequency_bands, load_interval_plan
 
     saved_plan = run_settings.get("interval_plan_path")
@@ -75,7 +75,7 @@ def _prepare_interval_plan(
         "config_sha256": hashlib.sha256(config_path.read_bytes()).hexdigest(),
         "candidate_generation": {
             "n_pts": int(output_points),
-            "sampling_mode": "equal_total_points",
+            "sampling_mode": "uniform_frequency_spacing_with_overlap",
         },
         "selection": {
             "frequency_range_ghz": [float(frequency_range[0]), float(frequency_range[1])],
@@ -160,7 +160,7 @@ def main() -> int:
         )
         output_points = int(effective_settings.get("n_pts", 301))
         print(
-            "Preparing deterministic equal-width intervals "
+            "Preparing deterministic overlapping frequency intervals "
             "or loading the saved plan.",
             flush=True,
         )
