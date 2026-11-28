@@ -288,6 +288,19 @@ def reconstruct_response(
     }
 
 
+def _run_band_task(task):
+    """Picklable process-pool entry point for one independent frequency interval."""
+    (
+        index, config_path, band_dir, band, end_criteria, timestep_limit,
+        thread_count, variables, far_field,
+    ) = task
+    result = _run_band(
+        config_path, band_dir, band, end_criteria, timestep_limit,
+        thread_count, active_vars=variables, record_far_field=far_field,
+    )
+    return index, result
+
+
 def run_multiband(
     config_path: str | Path,
     output_dir: str | Path,
@@ -395,21 +408,14 @@ def run_multiband(
         for index, band in enumerate(normalized)
     ]
 
-    def execute_task(task):
-        index, config_path, band_dir, band, end_criteria, timestep_limit, thread_count, variables, far_field = task
-        return index, _run_band(
-            config_path, band_dir, band, end_criteria, timestep_limit,
-            thread_count, active_vars=variables, record_far_field=far_field,
-        )
-
     if worker_count == 1:
         for task in tasks:
-            index, result = execute_task(task)
+            index, result = _run_band_task(task)
             results[index] = result
     else:
         context = multiprocessing.get_context("spawn")
         with ProcessPoolExecutor(max_workers=worker_count, mp_context=context) as executor:
-            futures = [executor.submit(execute_task, task) for task in tasks]
+            futures = [executor.submit(_run_band_task, task) for task in tasks]
             for future in as_completed(futures):
                 index, result = future.result()
                 results[index] = result
