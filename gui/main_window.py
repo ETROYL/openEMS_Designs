@@ -1579,6 +1579,17 @@ class MainWindow(QMainWindow):
                     self.simulation_log.appendPlainText("Could not parse simulation progress update: " + str(exc))
                 continue
             self.simulation_log.appendPlainText(line)
+            if line.startswith("Building CSXCAD geometry and mesh"):
+                self.simulation_stage_label.setText("Stage: building geometry and mesh")
+                self.simulation_progress.setFormat("Building geometry and mesh…")
+            elif line.startswith("Starting openEMS FDTD solver"):
+                self.simulation_stage_label.setText(
+                    "Stage: openEMS solver running (solver progress is not exposed reliably)"
+                )
+                self.simulation_progress.setFormat("FDTD solver running…")
+                self.simulation_eta_label.setText("Remaining: unavailable for single-band runs")
+            elif line.startswith("FDTD simulation completed successfully"):
+                self.simulation_stage_label.setText("Stage: FDTD solver completed")
             if line.startswith("SIMULATION_OUTPUT_DIR="):
                 self.last_simulation_dir = Path(line.split("=", 1)[1].strip())
             elif line.startswith("SIMULATION_CONFIG="):
