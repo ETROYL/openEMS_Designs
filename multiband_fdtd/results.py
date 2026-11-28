@@ -482,7 +482,8 @@ def _draw_radiation_pattern(axis, far_field: dict) -> None:
         theta_rad = np.deg2rad(theta)
         axis.plot(theta_rad, e_plane, color="#3995ff", linewidth=1.8, label="E-plane")
         axis.plot(theta_rad, h_plane, color="#ff5252", linewidth=1.8, label="H-plane")
-        axis.set_rlim(-30, 0)
+        # PolarAxes uses the y-axis limits for radial limits; set_rlim is not a Matplotlib Axes API.
+        axis.set_ylim(-30, 0)
         axis.set_rticks([-30, -20, -10, 0])
         axis.legend(loc="lower right", fontsize=7)
         frequency = far_field.get("radiation_pattern_frequency_ghz")
