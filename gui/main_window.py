@@ -2113,10 +2113,15 @@ class MainWindow(QMainWindow):
                 far_field = json.loads(far_field_path.read_text(encoding="utf-8"))
                 frequencies = far_field["frequency_ghz"]
                 directivity = far_field["directivity_dbi"]
-                gain = far_field["realized_gain_dbi"]
-                efficiency = far_field["total_efficiency_percent"]
+                gain = far_field["gain_dbi"]
+                realized_gain = far_field["realized_gain_dbi"]
+                radiation_efficiency = far_field["radiation_efficiency_percent"]
+                total_efficiency = far_field["total_efficiency_percent"]
                 best_dir = max(range(len(directivity)), key=lambda i: directivity[i])
                 best_gain = max(range(len(gain)), key=lambda i: gain[i])
+                best_realized = max(
+                    range(len(realized_gain)), key=lambda i: realized_gain[i]
+                )
                 resonance_eval = min(
                     range(len(frequencies)),
                     key=lambda i: abs(frequencies[i] - metrics["minimum_s11_frequency_ghz"]),
@@ -2124,8 +2129,12 @@ class MainWindow(QMainWindow):
                 lines.append(
                     f"Peak directivity {directivity[best_dir]:.1f} dBi  |  "
                     f"Peak gain {gain[best_gain]:.1f} dBi  |  "
-                    f"Total efficiency at resonance {efficiency[resonance_eval]:.1f}% "
-                    "(radiation efficiency assumed 100% for ideal PEC)"
+                    f"Peak realized gain {realized_gain[best_realized]:.1f} dBi"
+                )
+                lines.append(
+                    f"At resonance: radiation efficiency "
+                    f"{radiation_efficiency[resonance_eval]:.1f}%  |  "
+                    f"total efficiency {total_efficiency[resonance_eval]:.1f}%"
                 )
             self.results_summary.setText("\n".join(lines))
             self._sync_pattern_frequency_controls()
