@@ -494,14 +494,14 @@ class AutomaticRunTests(unittest.TestCase):
             manifest_exists = (output / "automatic_run.json").is_file()
 
         bands = result["selected_bands"]
-        self.assertEqual(len(bands), 6)
-        self.assertEqual(sum(band.n_pts for band in bands), 801)
+        self.assertEqual(len(bands), 7)
+        self.assertGreater(sum(band.n_pts for band in bands), 801)
         self.assertTrue(all(band.fstop_ghz - band.fstart_ghz <= 0.5 + 1e-12
                             for band in bands))
         self.assertAlmostEqual(bands[0].fstart_ghz, 0.1)
         self.assertAlmostEqual(bands[-1].fstop_ghz, 3.0)
         self.assertTrue(all(
-            abs(left.fstop_ghz - right.fstart_ghz) < 1e-12
+            abs((left.fstop_ghz - right.fstart_ghz) - 0.1) < 1e-9
             for left, right in zip(bands, bands[1:])
         ))
         kwargs = run_production.call_args.kwargs
@@ -556,11 +556,29 @@ class EqualWidthIntervalPlannerTests(unittest.TestCase):
         self.assertTrue(all(band.fstop_ghz - band.fstart_ghz <= 0.5 + 1e-12
                             for band in bands))
 
-    def test_rejects_insufficient_samples_for_interval_count(self):
+    def test_generates_twenty_percent_overlap_and_preserves_grid_density(self):
         from multiband_fdtd import build_equal_width_frequency_bands
 
-        with self.assertRaisesRegex(ValueError, "insufficient"):
-            build_equal_width_frequency_bands((0.1, 3.0), 10)
+        bands = build_equal_width_frequency_bands((0.1, 3.0), 801)
+        self.assertEqual(len(bands), 7)
+        self.assertTrue(all(
+            abs((left.fstop_ghz - right.fstart_ghz) - 0.1) < 1e-9
+            for left, right in zip(bands, bands[1:])
+        ))
+        broadband_step = (3.0 - 0.1) / 800
+        for band in bands:
+            self.assertAlmostEqual(
+                (band.fstop_ghz - band.fstart_ghz) / (band.n_pts - 1),
+                broadband_step, delta=broadband_step * 0.01,
+            )
+
+    def test_rejects_invalid_overlap_fraction(self):
+        from multiband_fdtd import build_equal_width_frequency_bands
+
+        with self.assertRaisesRegex(ValueError, "overlap_fraction"):
+            build_equal_width_frequency_bands(
+                (0.1, 3.0), 801, overlap_fraction=1.0
+            )
 
 
 if __name__ == "__main__":
