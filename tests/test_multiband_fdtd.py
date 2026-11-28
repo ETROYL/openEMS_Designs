@@ -88,6 +88,34 @@ class MultiBandPlannerTests(unittest.TestCase):
         self.assertTrue(np.allclose(np.abs(result["s11"]), 0.3, atol=1e-3))
 
 
+class ResponseSmoothingTests(unittest.TestCase):
+    def test_gaussian_low_pass_smooths_complex_response_and_keeps_raw_data(self):
+        frequency = np.linspace(0.1, 1.0, 101) * 1e9
+        ripple = 0.05 * (-1.0) ** np.arange(frequency.size)
+        s11 = 0.2 + ripple + 0j
+        z_in = 50.0 + 10.0 * ripple * 1j
+        band = BandResult(
+            FrequencyBand(0.1, 1.0, frequency.size),
+            frequency, s11, z_in, 1.0, None, "test",
+        )
+
+        result = reconstruct_response(
+            [band], (0.1, 1.0), frequency.size,
+            smoothing_sigma_points=1.5,
+        )
+
+        self.assertTrue(np.allclose(result["s11_raw"], s11))
+        self.assertTrue(np.allclose(result["z_in_raw"], z_in))
+        self.assertLess(
+            np.std(np.diff(result["s11"])),
+            np.std(np.diff(result["s11_raw"])),
+        )
+        self.assertLess(
+            np.std(np.diff(result["z_in"])),
+            np.std(np.diff(result["z_in_raw"])),
+        )
+
+
 class CandidateGenerationTests(unittest.TestCase):
     def test_generates_grid_candidates_without_full_range(self):
         bands = generate_candidate_bands((0.1, 1.1), interval_widths_ghz=(0.5, 1.0), boundary_step_ghz=0.25, n_pts=41)
