@@ -38,8 +38,16 @@ def build_equal_width_frequency_bands(
     n_points: int,
     *,
     maximum_bandwidth_ghz: float = 0.5,
+    overlap_fraction: float = 0.2,
 ) -> list[FrequencyBand]:
-    """Build a deterministic contiguous interval plan without solver probes."""
+    """Build a deterministic interval plan with controlled adjacent overlap.
+
+    overlap_fraction is measured against the maximum interval bandwidth.
+    The final interval is shifted as needed to end exactly at the requested
+    upper frequency while retaining at least the configured overlap.
+    n_points defines broadband extraction-grid density; each interval
+    receives enough samples to preserve that density independently.
+    """
     fstart, fstop = map(float, frequency_range_ghz)
     if not (math.isfinite(fstart) and math.isfinite(fstop)
             and 0 < fstart < fstop):
@@ -48,21 +56,27 @@ def build_equal_width_frequency_bands(
         raise ValueError("n_points must be an integer of at least 2.")
     if not math.isfinite(maximum_bandwidth_ghz) or maximum_bandwidth_ghz <= 0:
         raise ValueError("maximum_bandwidth_ghz must be finite and positive.")
+    if not math.isfinite(overlap_fraction) or not 0 <= overlap_fraction < 1:
+        raise ValueError("overlap_fraction must be finite and in [0, 1).")
 
     span = fstop - fstart
-    band_count = max(1, int(math.ceil(span / maximum_bandwidth_ghz - 1e-12)))
-    if n_points < 2 * band_count:
-        raise ValueError(
-            f"{n_points} frequency points are insufficient for {band_count} "
-            "intervals; at least two points per interval are required."
-        )
+    width = min(maximum_bandwidth_ghz, span)
+    step = width * (1.0 - overlap_fraction)
+    starts = [fstart]
+    tolerance = 1e-12
+    while starts[-1] + width < fstop - tolerance:
+        next_start = starts[-1] + step
+        if next_start + width >= fstop - tolerance:
+            next_start = fstop - width
+        if next_start <= starts[-1] + tolerance:
+            break
+        starts.append(next_start)
 
-    base_points, remainder = divmod(n_points, band_count)
+    grid_spacing = span / (n_points - 1)
     bands = []
-    for index in range(band_count):
-        low = fstart + span * index / band_count
-        high = fstop if index == band_count - 1 else fstart + span * (index + 1) / band_count
-        points = base_points + (1 if index < remainder else 0)
+    for low in starts:
+        high = min(fstop, low + width)
+        points = max(2, int(math.ceil((high - low) / grid_spacing - 1e-12)) + 1)
         bands.append(FrequencyBand(low, high, points))
     return bands
 
@@ -645,9 +659,10 @@ def run_multiband_auto(
     max_timesteps: int | None = None,
     threads: int | None = None,
     workers: int | None = None,
-    smoothing_sigma_points: float = 0.0,
+    smoothing_sigma_points: float = 1.5,
     record_far_field: bool = False,
     maximum_bandwidth_ghz: float = 0.5,
+    overlap_fraction: float = 0.2,
     **_legacy_planner_options,
 ) -> dict[str, Any]:
     """Run using a fast, deterministic equal-width interval plan.
@@ -666,10 +681,12 @@ def run_multiband_auto(
     bands = build_equal_width_frequency_bands(
         frequency_range_ghz, sample_count,
         maximum_bandwidth_ghz=maximum_bandwidth_ghz,
+        overlap_fraction=overlap_fraction,
     )
     print(
-        f"Prepared {len(bands)} equal-width interval(s) "
-        f"(maximum {maximum_bandwidth_ghz:g} GHz); no pilot simulations required.",
+        f"Prepared {len(bands)} overlapping interval(s) "
+        f"(maximum {maximum_bandwidth_ghz:g} GHz, "
+        f"{overlap_fraction:.0%} nominal overlap); no pilot simulations required.",
         flush=True,
     )
     root = Path(output_dir).expanduser().resolve()
@@ -693,6 +710,10 @@ def run_multiband_auto(
         "profile": profile,
         "frequency_range_ghz": list(map(float, frequency_range_ghz)),
         "selected_intervals": [asdict(band) for band in bands],
+        "interval_settings": {
+            "maximum_bandwidth_ghz": float(maximum_bandwidth_ghz),
+            "overlap_fraction": float(overlap_fraction),
+        },
         "production_output_dir": production["output_dir"],
         "production_settings": {
             "n_points": sample_count,
