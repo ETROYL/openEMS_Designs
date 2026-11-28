@@ -89,13 +89,40 @@ NF2FF_MIN_GRID_LINES = 21
 
 
 def _add_nf2ff_mesh_support_lines(mesh, bounds, minimum_lines=NF2FF_MIN_GRID_LINES):
-    """Ensure each axis has enough mesh lines inside an eight-layer PML."""
+    """Add NF2FF support lines by bisecting the largest existing mesh gaps.
+
+    Existing geometry and port coordinates are retained. Unlike uniform
+    placement across the whole domain, largest-gap subdivision avoids
+    introducing support coordinates almost coincident with existing lines.
+    """
     if minimum_lines < 21:
         raise ValueError("NF2FF support requires at least 21 grid lines per axis.")
+
     for axis, (lower, upper) in zip(("x", "y", "z"), bounds):
         if not (math.isfinite(lower) and math.isfinite(upper) and lower < upper):
             raise ValueError(f"Invalid {axis}-axis mesh bounds for NF2FF support.")
-        mesh.AddLine(axis, np.linspace(lower, upper, minimum_lines))
+
+        lines = np.unique(np.asarray(mesh.GetLines(axis), dtype=float).reshape(-1))
+        if lines.size < 2:
+            lines = np.unique(np.append(lines, [lower, upper]))
+        if lines[0] > lower or lines[-1] < upper:
+            lines = np.unique(np.append(lines, [lower, upper]))
+
+        while lines.size < minimum_lines:
+            gaps = np.diff(lines)
+            if gaps.size == 0 or not np.any(gaps > 0):
+                raise RuntimeError(
+                    f"Cannot construct NF2FF support lines on the {axis}-axis."
+                )
+            gap_index = int(np.argmax(gaps))
+            midpoint = lines[gap_index] + 0.5 * gaps[gap_index]
+            if midpoint <= lines[gap_index] or midpoint >= lines[gap_index + 1]:
+                raise RuntimeError(
+                    f"Insufficient numerical resolution for NF2FF support "
+                    f"on the {axis}-axis."
+                )
+            mesh.AddLine(axis, [midpoint])
+            lines = np.insert(lines, gap_index + 1, midpoint)
 
 
 def build_design(
