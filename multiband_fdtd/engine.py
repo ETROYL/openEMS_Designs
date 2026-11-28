@@ -633,6 +633,7 @@ def run_multiband_auto(
     end_criteria_db: float | None = None,
     max_timesteps: int | None = None,
     threads: int | None = None,
+    workers: int | None = None,
     smoothing_sigma_points: float = 0.0,
     record_far_field: bool = False,
     maximum_bandwidth_ghz: float = 0.5,
@@ -673,6 +674,7 @@ def run_multiband_auto(
         end_criteria_db=default_db if end_criteria_db is None else end_criteria_db,
         max_timesteps=default_steps if max_timesteps is None else max_timesteps,
         threads=threads,
+        workers=workers,
         smoothing_sigma_points=smoothing_sigma_points,
         record_far_field=record_far_field,
     )
@@ -685,7 +687,8 @@ def run_multiband_auto(
             "n_points": sample_count,
             "end_criteria_db": default_db if end_criteria_db is None else float(end_criteria_db),
             "max_timesteps": default_steps if max_timesteps is None else int(max_timesteps),
-            "threads": int(threads),
+            "threads": int(threads) if threads is not None else None,
+            "interval_workers": int(workers) if workers is not None else None,
             "far_field_recorded": bool(record_far_field),
         },
     }
