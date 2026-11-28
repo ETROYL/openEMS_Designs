@@ -8,7 +8,8 @@ import unittest
 from pathlib import Path
 
 from multiband_fdtd.results import (
-    analyze_broadband_csv, calculate_far_field, process_results, wrapped_phase_degrees,
+    _draw_radiation_pattern, analyze_broadband_csv, calculate_far_field,
+    process_results, wrapped_phase_degrees,
   )
 
 
@@ -110,6 +111,23 @@ class BroadbandResultsTests(unittest.TestCase):
                     simulation_dir,
                     simulation_dir,
                 )
+
+
+    def test_radiation_pattern_uses_supported_polar_axis_limits(self):
+        import matplotlib
+        matplotlib.use("Agg")
+        import matplotlib.pyplot as plt
+
+        figure = plt.figure()
+        axis = figure.add_subplot(111, projection="polar")
+        _draw_radiation_pattern(axis, {
+            "radiation_pattern_theta_deg": [-180.0, 0.0, 180.0],
+            "radiation_pattern_e_plane_db": [-20.0, 0.0, -20.0],
+            "radiation_pattern_h_plane_db": [-15.0, -3.0, -15.0],
+            "radiation_pattern_frequency_ghz": 2.5,
+        })
+        self.assertEqual(tuple(axis.get_ylim()), (-30.0, 0.0))
+        plt.close(figure)
 
 
 if __name__ == "__main__":
