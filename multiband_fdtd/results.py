@@ -8,6 +8,11 @@ from pathlib import Path
 import numpy as np
 
 
+def wrapped_phase_degrees(s11_complex: np.ndarray) -> np.ndarray:
+    """Return principal S11 phase values in the inclusive [-180°, +180°] range."""
+    return np.rad2deg(np.angle(np.asarray(s11_complex, dtype=complex)))
+
+
 _REQUIRED_COLUMNS = (
     "frequency_GHz", "s11_smoothed_dB",
     "z_in_smoothed_real", "z_in_smoothed_imag",
@@ -558,7 +563,7 @@ def create_result_plot_set(
         axis.legend()
 
     def draw_phase(axis):
-        phase_deg = np.rad2deg(np.angle(data["s11_complex"]))
+        phase_deg = wrapped_phase_degrees(data["s11_complex"])
         axis.plot(frequency, phase_deg, color="#b38cff", linewidth=1.7)
         axis.set_ylim(-180, 180)
         axis.set_yticks([-180, -90, 0, 90, 180])
