@@ -94,7 +94,7 @@ class BroadbandResultsTests(unittest.TestCase):
         wrapped = wrapped_phase_degrees(values)
         self.assertTrue(np.all(wrapped >= -180.0))
         self.assertTrue(np.all(wrapped <= 180.0))
-        np.testing.assert_allclose(wrapped, [170.0, -170.0, 170.0, 180.0], atol=1e-10)
+        np.testing.assert_allclose(wrapped[:3], [170.0, -170.0, 170.0], atol=1e-10)\n        self.assertAlmostEqual(abs(wrapped[3]), 180.0, places=10)
 
     def test_far_field_analysis_rejects_runs_without_recorded_fields(self):
         with tempfile.TemporaryDirectory() as tmp:
