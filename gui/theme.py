@@ -55,7 +55,6 @@ def apply_theme(app, theme_name: str = "dark") -> str:
 
     app.setStyleSheet("""
         QWidget {
-            background-color: %(window)s;
             color: %(text)s;
             selection-background-color: %(selection)s;
             selection-color: %(text)s;
