@@ -3,11 +3,15 @@ from __future__ import annotations
 
 import json
 import math
+import multiprocessing
 import os
 import time
+from concurrent.futures import ProcessPoolExecutor, as_completed
 from dataclasses import asdict, dataclass
 from pathlib import Path
 from typing import Any, Iterable, Mapping
+
+from .resources import allocate_band_resources
 
 import numpy as np
 import yaml
@@ -294,7 +298,8 @@ def run_multiband(
     n_points: int | None = None,
     end_criteria_db: float | None = None,
     max_timesteps: int | None = None,
-    threads: int = 1,
+    threads: int | None = None,
+    workers: int | None = None,
     smoothing_sigma_points: float = 0.0,
     active_vars: Mapping[str, Any] | None = None,
     record_far_field: bool = False,
@@ -316,8 +321,8 @@ def run_multiband(
     sample_count = default_points if n_points is None else int(n_points)
     if not math.isfinite(end_db) or end_db >= 0:
         raise ValueError("end_criteria_db must be finite and negative.")
-    if max_ts <= 0 or sample_count < 2 or threads < 1:
-        raise ValueError("Invalid max_timesteps, n_points or threads.")
+    if max_ts <= 0 or sample_count < 2:
+        raise ValueError("Invalid max_timesteps or n_points.")
     if smoothing_sigma_points < 0:
         raise ValueError("smoothing_sigma_points cannot be negative.")
     end_linear = 10.0 ** (end_db / 10.0)
@@ -353,15 +358,65 @@ def run_multiband(
         json.dumps(manifest, indent=2), encoding="utf-8"
     )
 
-    results = []
-    for index, band in enumerate(normalized, start=1):
-        results.append(_run_band(
-            config, root / f"band_{index:02d}", band,
-            end_linear, max_ts, threads, active_vars=active_vars,
-            record_far_field=record_far_field,
-        ))
+    allocation = allocate_band_resources(len(normalized))
+    if threads is not None:
+        requested_threads = int(threads)
+        if requested_threads < 2:
+            raise ValueError("Each production FDTD interval requires at least two threads.")
+        allocation_threads = min(allocation.threads_per_worker, requested_threads)
+    else:
+        allocation_threads = allocation.threads_per_worker
+    worker_count = allocation.workers if workers is None else int(workers)
+    if worker_count < 1 or worker_count > allocation.workers:
+        raise ValueError(
+            f"Requested interval workers ({worker_count}) exceed the available "
+            f"allocation ({allocation.workers})."
+        )
+    if worker_count * allocation_threads > allocation.logical_cpus:
+        raise ValueError("The requested interval allocation exceeds available logical CPUs.")
+
+    manifest.update({
+        "interval_workers": worker_count,
+        "threads_per_interval": allocation_threads,
+        "logical_cpu_capacity": allocation.logical_cpus,
+        "execution_batches": math.ceil(len(normalized) / worker_count),
+    })
+    (root / "multiband_run.json").write_text(
+        json.dumps(manifest, indent=2), encoding="utf-8"
+    )
+
+    results: list[BandResult | None] = [None] * len(normalized)
+    tasks = [
+        (
+            index, config, root / f"band_{index + 1:02d}", band,
+            end_linear, max_ts, allocation_threads, active_vars,
+            record_far_field,
+        )
+        for index, band in enumerate(normalized)
+    ]
+
+    def execute_task(task):
+        index, config_path, band_dir, band, end_criteria, timestep_limit, thread_count, variables, far_field = task
+        return index, _run_band(
+            config_path, band_dir, band, end_criteria, timestep_limit,
+            thread_count, active_vars=variables, record_far_field=far_field,
+        )
+
+    if worker_count == 1:
+        for task in tasks:
+            index, result = execute_task(task)
+            results[index] = result
+    else:
+        context = multiprocessing.get_context("spawn")
+        with ProcessPoolExecutor(max_workers=worker_count, mp_context=context) as executor:
+            futures = [executor.submit(execute_task, task) for task in tasks]
+            for future in as_completed(futures):
+                index, result = future.result()
+                results[index] = result
+
+    completed_results = [item for item in results if item is not None]
     combined = reconstruct_response(
-        results, requested, sample_count,
+        completed_results, requested, sample_count,
         smoothing_sigma_points=smoothing_sigma_points,
     )
     np.savez_compressed(root / "broadband_response.npz", **combined)
@@ -379,7 +434,7 @@ def run_multiband(
                 "z_in_smoothed_real,z_in_smoothed_imag"),
         comments="",
     )
-    manifest["total_runtime_seconds"] = sum(item.runtime_seconds for item in results)
+    manifest["total_runtime_seconds"] = sum(item.runtime_seconds for item in completed_results)
     manifest["band_results"] = [
         {"runtime_seconds": item.runtime_seconds, "mesh_cells": item.cells,
          "output_dir": item.output_dir} for item in results
@@ -388,7 +443,7 @@ def run_multiband(
         json.dumps(manifest, indent=2), encoding="utf-8"
     )
     return {
-        **combined, "bands": results,
+        **combined, "bands": completed_results,
         "total_runtime_seconds": manifest["total_runtime_seconds"],
         "output_dir": str(root), "profile": profile,
     }
@@ -412,7 +467,7 @@ def run_multiband_characterized(
     n_points: int | None = None,
     end_criteria_db: float | None = None,
     max_timesteps: int | None = None,
-    threads: int = 1,
+    threads: int | None = None,
     smoothing_sigma_points: float = 0.0,
     plan_cache_dir: str | Path | None = None,
     record_far_field: bool = False,
@@ -435,8 +490,8 @@ def run_multiband_characterized(
     production_points = default_points if n_points is None else int(n_points)
     if not math.isfinite(production_db) or production_db >= 0:
         raise ValueError("end_criteria_db must be finite and negative.")
-    if production_steps <= 0 or production_points < 2 or threads < 1:
-        raise ValueError("Invalid production max_timesteps, n_points or threads.")
+    if production_steps <= 0 or production_points < 2:
+        raise ValueError("Invalid production max_timesteps or n_points.")
     if smoothing_sigma_points < 0:
         raise ValueError("smoothing_sigma_points cannot be negative.")
     if pilot_threads < 1 or pilot_max_timesteps < 1:
@@ -571,7 +626,7 @@ def run_multiband_auto(
     n_points: int | None = None,
     end_criteria_db: float | None = None,
     max_timesteps: int | None = None,
-    threads: int = 1,
+    threads: int | None = None,
     smoothing_sigma_points: float = 0.0,
     record_far_field: bool = False,
     maximum_bandwidth_ghz: float = 0.5,
