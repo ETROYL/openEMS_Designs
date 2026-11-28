@@ -630,7 +630,7 @@ class EqualWidthFrequencyBandTests(unittest.TestCase):
         self.assertEqual(len(bands), 15)
         self.assertEqual(
             [band.fstart_ghz for band in bands],
-            [0.1 + 0.4 * index for index in range(15)],
+            [round(0.1 + 0.4 * index, 12) for index in range(15)],
         )
         self.assertEqual(bands[0].fstop_ghz, 0.6)
         self.assertEqual(bands[1].fstart_ghz, 0.5)
