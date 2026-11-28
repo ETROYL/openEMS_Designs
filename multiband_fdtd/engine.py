@@ -43,8 +43,8 @@ def build_equal_width_frequency_bands(
     """Build a deterministic interval plan with controlled adjacent overlap.
 
     overlap_fraction is measured against the maximum interval bandwidth.
-    The final interval is shifted as needed to end exactly at the requested
-    upper frequency while retaining at least the configured overlap.
+    The final interval may be narrower than the maximum width; it still
+    reaches the requested upper frequency without changing the overlap step.
     n_points defines broadband extraction-grid density; each interval
     receives enough samples to preserve that density independently.
     """
@@ -66,8 +66,6 @@ def build_equal_width_frequency_bands(
     tolerance = 1e-12
     while starts[-1] + width < fstop - tolerance:
         next_start = starts[-1] + step
-        if next_start + width >= fstop - tolerance:
-            next_start = fstop - width
         if next_start <= starts[-1] + tolerance:
             break
         starts.append(next_start)
