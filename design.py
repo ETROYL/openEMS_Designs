@@ -103,10 +103,17 @@ def _add_nf2ff_mesh_support_lines(mesh, bounds, minimum_lines=NF2FF_MIN_GRID_LIN
             raise ValueError(f"Invalid {axis}-axis mesh bounds for NF2FF support.")
 
         lines = np.unique(np.asarray(mesh.GetLines(axis), dtype=float).reshape(-1))
-        if lines.size < 2:
-            lines = np.unique(np.append(lines, [lower, upper]))
-        if lines[0] > lower or lines[-1] < upper:
-            lines = np.unique(np.append(lines, [lower, upper]))
+        # Ensure the requested bounds are actual mesh coordinates, not only
+        # temporary entries in the subdivision calculation.
+        missing_bounds = [
+            value for value in (lower, upper)
+            if not np.any(lines == value)
+        ]
+        if missing_bounds:
+            mesh.AddLine(axis, missing_bounds)
+            lines = np.unique(
+                np.asarray(mesh.GetLines(axis), dtype=float).reshape(-1)
+            )
 
         while lines.size < minimum_lines:
             gaps = np.diff(lines)
