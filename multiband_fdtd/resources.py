@@ -39,7 +39,8 @@ def allocate_band_resources(
     intervals use two threads each and up to seven concurrent workers.
     Additional intervals are queued by the caller in later batches.
     """
-    if isinstance(interval_count, bool) or interval_count < 1:
+    if (isinstance(interval_count, bool) or not isinstance(interval_count, int)
+            or interval_count < 1):
         raise ValueError("interval_count must be a positive integer.")
     if max_workers < 1 or min_threads < 1 or max_threads < min_threads:
         raise ValueError("Invalid worker or thread limits.")
