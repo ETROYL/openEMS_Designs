@@ -669,10 +669,28 @@ def create_result_plot_set(
         axis.set_xlabel("Frequency (GHz)")
         axis.set_ylabel("Phase (degrees)")
 
-    def draw_far_curve(axis, key, title, ylabel, color):
+    def far_field_series(key):
+        """Return a valid 1-D frequency series, or None for scalar/invalid data."""
         values = far_field.get(key)
         eval_freqs = far_field.get("frequency_ghz")
-        if values and eval_freqs and len(values) == len(eval_freqs):
+        if values is None or eval_freqs is None:
+            return None
+        try:
+            values = np.asarray(values, dtype=float)
+            eval_freqs = np.asarray(eval_freqs, dtype=float)
+        except (TypeError, ValueError):
+            return None
+        if (values.ndim != 1 or eval_freqs.ndim != 1 or values.size == 0
+                or values.size != eval_freqs.size
+                or not np.all(np.isfinite(values))
+                or not np.all(np.isfinite(eval_freqs))):
+            return None
+        return eval_freqs, values
+
+    def draw_far_curve(axis, key, title, ylabel, color):
+        series = far_field_series(key)
+        if series is not None:
+            eval_freqs, values = series
             axis.plot(eval_freqs, values, color=color, linewidth=1.8)
         else:
             axis.text(0.5, 0.5, "Far-field data unavailable", ha="center",
@@ -725,7 +743,7 @@ def create_result_plot_set(
         ("Total efficiency", "total_efficiency_percent", "efficiency_plot.png",
          "Total efficiency", "Efficiency (%)", "#b38cff"),
     ):
-        if far_field.get(key):
+        if far_field_series(key) is not None:
             catalog.append({
                 "label": label, "filename": filename,
                 "path": save_plot(
@@ -754,20 +772,23 @@ def create_result_plot_set(
     draw_real_impedance(axes[2])
     draw_imag_impedance(axes[3])
     _draw_radiation_pattern(axes[4], far_field)
-    gain_values = far_field.get("gain_dbi")
-    realized_values = far_field.get("realized_gain_dbi")
-    eval_freqs = far_field.get("frequency_ghz")
-    if gain_values and realized_values and eval_freqs and (
-        len(gain_values) == len(eval_freqs) == len(realized_values)
-    ):
-        axes[5].plot(eval_freqs, gain_values, color="#3995ff",
-                     linewidth=1.7, label="Gain")
-        axes[5].plot(eval_freqs, realized_values, color="#ff9f43",
-                     linewidth=1.7, label="Realized gain")
-        axes[5].set_title("Gain and realized gain")
-        axes[5].set_xlabel("Frequency (GHz)")
-        axes[5].set_ylabel("Gain (dBi)")
-        axes[5].legend(fontsize=7)
+    gain_series = far_field_series("gain_dbi")
+    realized_series = far_field_series("realized_gain_dbi")
+    if gain_series is not None and realized_series is not None:
+        gain_freqs, gain_values = gain_series
+        realized_freqs, realized_values = realized_series
+        if np.array_equal(gain_freqs, realized_freqs):
+            axes[5].plot(gain_freqs, gain_values, color="#3995ff",
+                         linewidth=1.7, label="Gain")
+            axes[5].plot(realized_freqs, realized_values, color="#ff9f43",
+                         linewidth=1.7, label="Realized gain")
+            axes[5].set_title("Gain and realized gain")
+            axes[5].set_xlabel("Frequency (GHz)")
+            axes[5].set_ylabel("Gain (dBi)")
+            axes[5].legend(fontsize=7)
+        else:
+            draw_far_curve(axes[5], "gain_dbi", "Gain and realized gain",
+                           "Gain (dBi)", "#3995ff")
     else:
         draw_far_curve(axes[5], "gain_dbi", "Gain and realized gain",
                        "Gain (dBi)", "#3995ff")
@@ -775,22 +796,26 @@ def create_result_plot_set(
                    "Directivity (dBi)", "#39c6a5")
     draw_far_curve(axes[7], "total_efficiency_percent", "Total efficiency",
                    "Efficiency (%)", "#b38cff")
-    axes[7].plot(far_field.get("frequency_ghz", []),
-                 far_field.get("radiation_efficiency_percent", []),
-                 "--", color="#f2f4f7", linewidth=1.2,
-                 label="Radiation efficiency")
-    axes[7].plot(far_field.get("frequency_ghz", []),
-                 far_field.get("mismatch_efficiency_percent", []),
-                 color="#3995ff", linewidth=1.2,
-                 label="Mismatch efficiency")
-    efficiency_series = (
-        far_field.get("radiation_efficiency_percent", [])
-        + far_field.get("mismatch_efficiency_percent", [])
-        + far_field.get("total_efficiency_percent", [])
-    )
-    efficiency_max = max(efficiency_series + [100.0])
+    efficiency_values = []
+    for key, style, color, label in (
+        ("radiation_efficiency_percent", "--", "#f2f4f7", "Radiation efficiency"),
+        ("mismatch_efficiency_percent", "-", "#3995ff", "Mismatch efficiency"),
+    ):
+        series = far_field_series(key)
+        if series is not None:
+            series_freqs, series_values = series
+            axes[7].plot(series_freqs, series_values, style, color=color,
+                         linewidth=1.2, label=label)
+            efficiency_values.extend(series_values.tolist())
+    for key in ("radiation_efficiency_percent", "mismatch_efficiency_percent",
+                "total_efficiency_percent"):
+        series = far_field_series(key)
+        if series is not None:
+            efficiency_values.extend(series[1].tolist())
+    efficiency_max = max(efficiency_values + [100.0])
     axes[7].set_ylim(0, max(105.0, 5.0 * np.ceil(efficiency_max / 5.0)))
-    axes[7].legend(fontsize=6)
+    if efficiency_values:
+        axes[7].legend(fontsize=6)
     for axis in (axes[0], axes[1], axes[2], axes[3], axes[5], axes[6], axes[7]):
         axis.grid(True, alpha=0.28)
         axis.set_xlim(float(frequency[0]), float(frequency[-1]))
