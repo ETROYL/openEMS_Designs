@@ -491,6 +491,7 @@ class AutomaticRunTests(unittest.TestCase):
                 n_points=801, threads=4, smoothing_sigma_points=1.5,
                 record_far_field=True,
             )
+            manifest_exists = (output / "automatic_run.json").is_file()
 
         bands = result["selected_bands"]
         self.assertEqual(len(bands), 6)
@@ -513,7 +514,7 @@ class AutomaticRunTests(unittest.TestCase):
         self.assertEqual(kwargs["threads"], 4)
         self.assertEqual(kwargs["smoothing_sigma_points"], 1.5)
         self.assertTrue(kwargs["record_far_field"])
-        self.assertTrue((output / "automatic_run.json").is_file())
+        self.assertTrue(manifest_exists)
 
     @patch("multiband_fdtd.engine.run_multiband")
     def test_uses_profile_defaults(self, run_production):
