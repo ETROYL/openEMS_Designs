@@ -10,6 +10,7 @@ import sys
 import tempfile
 import sqlite3
 from datetime import datetime
+from time import monotonic
 from pathlib import Path
 
 import yaml
@@ -18,7 +19,7 @@ from gui.cpu_resources import detect_cpu_resources, validate_allocation
 from gui.optimization_compatibility import find_incompatible_settings
 from matplotlib.backends.backend_qtagg import FigureCanvasQTAgg as FigureCanvas
 from matplotlib.figure import Figure
-from PySide6.QtCore import Qt, QProcess
+from PySide6.QtCore import Qt, QProcess, QTimer
 from PySide6.QtGui import QGuiApplication, QIcon, QPixmap
 from PySide6.QtWidgets import (
     QCheckBox, QComboBox, QDoubleSpinBox, QFileDialog, QFormLayout, QGroupBox, QHBoxLayout, QLabel, QMainWindow,
@@ -64,6 +65,15 @@ class MainWindow(QMainWindow):
         self.last_simulation_config: Path | None = None
         self.last_simulation_multiband = False
         self._simulation_stdout_buffer = ""
+        self._simulation_started_at: float | None = None
+        self._simulation_elapsed_seconds = 0.0
+        self._simulation_interval_total = 0
+        self._simulation_interval_completed = 0
+        self._simulation_interval_runtimes: list[float] = []
+        self._simulation_workers = 1
+        self._simulation_progress_timer = QTimer(self)
+        self._simulation_progress_timer.setInterval(1000)
+        self._simulation_progress_timer.timeout.connect(self._update_simulation_elapsed)
         self._optimization_stdout_buffer = ""
         self._optimization_steps: list[int] = []
         self._optimization_objectives: list[float] = []
@@ -520,8 +530,26 @@ class MainWindow(QMainWindow):
         self.stop_simulation_button = QPushButton("Stop simulation")
         self.stop_simulation_button.setEnabled(False)
         self.stop_simulation_button.clicked.connect(self.stop_simulation)
+        simulation_actions = QHBoxLayout()
+        simulation_actions.addWidget(self.run_simulation_button)
+        simulation_actions.addWidget(self.stop_simulation_button)
+        simulation_actions.addStretch(1)
         self.simulation_status = QLabel("No simulation has been run yet.")
         self._set_simulation_status("No simulation has been run yet.", "neutral")
+        self.simulation_progress = QProgressBar()
+        self.simulation_progress.setRange(0, 1)
+        self.simulation_progress.setValue(0)
+        self.simulation_progress.setFormat("Waiting for simulation")
+        self.simulation_progress_label = QLabel("Intervals: —")
+        self.simulation_elapsed_label = QLabel("Elapsed: 00:00")
+        self.simulation_eta_label = QLabel("Remaining: —")
+        self.simulation_stage_label = QLabel("Stage: idle")
+        self.simulation_stage_label.setWordWrap(True)
+        simulation_progress_info = QHBoxLayout()
+        simulation_progress_info.addWidget(self.simulation_progress_label)
+        simulation_progress_info.addWidget(self.simulation_elapsed_label)
+        simulation_progress_info.addWidget(self.simulation_eta_label)
+        simulation_progress_info.addStretch(1)
         self.simulation_log = QPlainTextEdit()
         self.simulation_log.setReadOnly(True)
         self.simulation_log.setPlaceholderText("FDTD execution output will appear here…")
@@ -529,9 +557,11 @@ class MainWindow(QMainWindow):
         layout.addWidget(description)
         layout.addWidget(self.simulation_multiband_checkbox)
         layout.addWidget(self.simulation_settings_label)
-        layout.addWidget(self.run_simulation_button)
-        layout.addWidget(self.stop_simulation_button)
+        layout.addLayout(simulation_actions)
         layout.addWidget(self.simulation_status)
+        layout.addWidget(self.simulation_progress)
+        layout.addLayout(simulation_progress_info)
+        layout.addWidget(self.simulation_stage_label)
         layout.addWidget(self.simulation_log, 1)
         return page
 
@@ -1456,6 +1486,19 @@ class MainWindow(QMainWindow):
             return
         self._simulation_config_path = self._write_temporary_config("etroyl_gui_simulation_")
         self._simulation_stdout_buffer = ""
+        self._simulation_started_at = monotonic()
+        self._simulation_elapsed_seconds = 0.0
+        self._simulation_interval_total = 0
+        self._simulation_interval_completed = 0
+        self._simulation_interval_runtimes = []
+        self._simulation_workers = 1
+        self.simulation_progress.setRange(0, 0)
+        self.simulation_progress.setFormat("Preparing simulation…")
+        self.simulation_progress_label.setText("Intervals: planning")
+        self.simulation_elapsed_label.setText("Elapsed: 00:00")
+        self.simulation_eta_label.setText("Remaining: estimating…")
+        self.simulation_stage_label.setText("Stage: preparing simulation")
+        self._simulation_progress_timer.start()
         self.last_simulation_dir = None
         self.last_simulation_config = None
         self.last_simulation_multiband = self.simulation_multiband_checkbox.isChecked()
@@ -1528,11 +1571,89 @@ class MainWindow(QMainWindow):
             line = line.rstrip("\r")
             if not line:
                 continue
+            if line.startswith("__SIMULATION_PROGRESS__="):
+                try:
+                    payload = json.loads(line.split("=", 1)[1])
+                    self._handle_simulation_progress(payload)
+                except (ValueError, TypeError, KeyError, json.JSONDecodeError) as exc:
+                    self.simulation_log.appendPlainText("Could not parse simulation progress update: " + str(exc))
+                continue
             self.simulation_log.appendPlainText(line)
             if line.startswith("SIMULATION_OUTPUT_DIR="):
                 self.last_simulation_dir = Path(line.split("=", 1)[1].strip())
             elif line.startswith("SIMULATION_CONFIG="):
                 self.last_simulation_config = Path(line.split("=", 1)[1].strip())
+
+    @staticmethod
+    def _format_duration(seconds: float | None) -> str:
+        if seconds is None or not math.isfinite(float(seconds)) or seconds < 0:
+            return "—"
+        value = int(round(seconds))
+        hours, remainder = divmod(value, 3600)
+        minutes, secs = divmod(remainder, 60)
+        return f"{hours:d}:{minutes:02d}:{secs:02d}" if hours else f"{minutes:02d}:{secs:02d}"
+
+    def _update_simulation_elapsed(self) -> None:
+        if self._simulation_started_at is None:
+            return
+        self._simulation_elapsed_seconds = monotonic() - self._simulation_started_at
+        self.simulation_elapsed_label.setText(
+            "Elapsed: " + self._format_duration(self._simulation_elapsed_seconds)
+        )
+
+    def _handle_simulation_progress(self, payload: dict) -> None:
+        phase = str(payload.get("phase", "running"))
+        total = int(payload.get("total", self._simulation_interval_total or 0))
+        completed = int(payload.get("completed", self._simulation_interval_completed))
+        if total > 0:
+            self._simulation_interval_total = total
+            self._simulation_interval_completed = min(max(completed, 0), total)
+            self._simulation_workers = max(1, int(payload.get("workers", self._simulation_workers)))
+            self.simulation_progress.setRange(0, total)
+            self.simulation_progress.setValue(self._simulation_interval_completed)
+            self.simulation_progress.setFormat(
+                f"Intervals: {self._simulation_interval_completed} / {total} (%p%)"
+            )
+            self.simulation_progress_label.setText(
+                f"Intervals: {self._simulation_interval_completed} / {total}"
+            )
+        if payload.get("runtime_seconds") is not None:
+            self._simulation_interval_runtimes.append(float(payload["runtime_seconds"]))
+        if phase == "planning":
+            self.simulation_stage_label.setText("Stage: preparing frequency intervals")
+            self.simulation_progress.setRange(0, 0)
+            self.simulation_progress.setFormat("Preparing frequency intervals…")
+            self.simulation_eta_label.setText("Remaining: estimating…")
+        elif phase == "intervals":
+            interval = payload.get("interval")
+            if interval is not None:
+                low = payload.get("fstart_ghz")
+                high = payload.get("fstop_ghz")
+                detail = (f" — interval {interval}: {float(low):g}–{float(high):g} GHz"
+                          if low is not None and high is not None else f" — interval {interval}")
+                self.simulation_stage_label.setText("Stage: running FDTD intervals" + detail)
+            else:
+                self.simulation_stage_label.setText("Stage: running FDTD intervals")
+            remaining = self._simulation_interval_total - self._simulation_interval_completed
+            if len(self._simulation_interval_runtimes) >= 1 and remaining > 0:
+                mean_runtime = sum(self._simulation_interval_runtimes) / len(self._simulation_interval_runtimes)
+                eta = mean_runtime * remaining / self._simulation_workers
+                self.simulation_eta_label.setText("Remaining: ~" + self._format_duration(eta))
+            elif remaining == 0:
+                self.simulation_eta_label.setText("Remaining: finalising…")
+            else:
+                self.simulation_eta_label.setText("Remaining: estimating…")
+        elif phase == "reconstructing":
+            self.simulation_stage_label.setText("Stage: reconstructing broadband response and saving results")
+            self.simulation_progress.setFormat("FDTD intervals complete — finalising results…")
+            self.simulation_eta_label.setText("Remaining: finalising…")
+        elif phase == "complete":
+            self.simulation_stage_label.setText("Stage: simulation and result preparation complete")
+            if total > 0:
+                self.simulation_progress.setRange(0, total)
+                self.simulation_progress.setValue(total)
+                self.simulation_progress.setFormat("Simulation complete — %p%")
+            self.simulation_eta_label.setText("Remaining: 00:00")
 
     def _simulation_stderr(self) -> None:
         data = bytes(self._simulation_process.readAllStandardError()).decode(errors="replace")
@@ -1542,6 +1663,9 @@ class MainWindow(QMainWindow):
     def _simulation_finished(self, exit_code: int, _exit_status) -> None:
         remaining = bytes(self._simulation_process.readAllStandardOutput()).decode(errors="replace")
         self._consume_simulation_stdout(remaining, flush=True)
+        self._simulation_progress_timer.stop()
+        self._update_simulation_elapsed()
+        self._simulation_started_at = None
         self.run_simulation_button.setEnabled(True)
         self.stop_simulation_button.setEnabled(False)
         if self._simulation_config_path:
@@ -1581,6 +1705,12 @@ class MainWindow(QMainWindow):
                     self.run_postprocess_button.setToolTip("")
                     self.results_status.setText(f"Ready to post-process: {self.last_simulation_dir}")
                 self._set_simulation_status("SIMULATION COMPLETED SUCCESSFULLY", "success")
+                if self._simulation_interval_total == 0:
+                    self.simulation_progress.setRange(0, 1)
+                    self.simulation_progress.setValue(1)
+                    self.simulation_progress.setFormat("Simulation complete")
+                self.simulation_stage_label.setText("Stage: simulation completed successfully")
+                self.simulation_eta_label.setText("Remaining: 00:00")
                 self.statusBar().showMessage("FDTD simulation completed")
             else:
                 self.results_status.setText("Simulation completed, but its output snapshot could not be located.")
@@ -1588,6 +1718,8 @@ class MainWindow(QMainWindow):
                 self.statusBar().showMessage("FDTD simulation output could not be located")
         else:
             self._set_simulation_status(f"SIMULATION FAILED — PROCESS EXIT CODE {exit_code}", "failure")
+            self.simulation_stage_label.setText("Stage: simulation failed or was stopped")
+            self.simulation_eta_label.setText("Remaining: —")
             self.statusBar().showMessage(f"FDTD simulation exited with code {exit_code}")
             self.simulation_log.appendPlainText(f"Simulation process exited with code {exit_code}.")
 
