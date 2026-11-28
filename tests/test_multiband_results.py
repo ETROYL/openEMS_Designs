@@ -164,6 +164,29 @@ class BroadbandResultsTests(unittest.TestCase):
             self.assertNotIn("Gain", labels)
             self.assertNotIn("Realized gain", labels)
 
+    def test_plot_set_reconstructs_missing_gain_series_from_efficiencies(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            csv_path = root / "response.csv"
+            output_dir = root / "report"
+            self._write_csv(csv_path)
+            output_dir.mkdir()
+            far_field = {
+                "frequency_ghz": [1.0, 2.0, 3.0],
+                "gain_dbi": 2.5,
+                "realized_gain_dbi": 2.0,
+                "directivity_dbi": [3.0, 4.0, 5.0],
+                "radiation_efficiency_percent": [90.0, 80.0, 70.0],
+                "total_efficiency_percent": [75.0, 60.0, 50.0],
+            }
+            create_result_plot_set(csv_path, output_dir, far_field)
+            catalog = json.loads(
+                (output_dir / "plot_catalog.json").read_text(encoding="utf-8")
+            )
+            labels = [item["label"] for item in catalog]
+            self.assertIn("Gain", labels)
+            self.assertIn("Realized gain", labels)
+
     def test_radiation_pattern_uses_supported_polar_axis_limits(self):
         import matplotlib
         matplotlib.use("Agg")
