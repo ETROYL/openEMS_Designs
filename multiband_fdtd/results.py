@@ -258,7 +258,6 @@ def calculate_far_field(csv_path: str | Path, simulation_dir: str | Path,
     response = _load_response(csv_path)
     freq_ghz = response["frequency_ghz"]
     s11_db = response["s11_db"]
-    s11_linear = 10.0 ** (s11_db / 20.0)
     minimum_index = int(np.argmin(s11_db))
     resonance_ghz = float(freq_ghz[minimum_index])
     theta = np.linspace(-180.0, 180.0, 361)
@@ -453,7 +452,7 @@ def update_radiation_pattern(
         raise RuntimeError(f"Far-field data was not recorded for {selected_band}.")
 
     print(f"Calculating radiation pattern at {frequency_ghz:.6g} GHz…", flush=True)
-    nf2ff = _build_nf2ff_for_band(selected_band)
+    _port, nf2ff = _build_nf2ff_for_band(selected_band)
     theta = np.linspace(-180.0, 180.0, 361)
     result = nf2ff.CalcNF2FF(
         str(selected_band), frequency_ghz * 1e9, theta, [0.0, 90.0]
