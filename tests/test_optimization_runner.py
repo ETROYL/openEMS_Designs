@@ -5,7 +5,7 @@ from pathlib import Path
 from unittest.mock import patch
 
 from gui.optimization_runner import _prepare_interval_plan
-from multiband_fdtd import FrequencyBand
+from multiband_fdtd import load_interval_plan
 
 
 class IntervalPlanRunnerTests(unittest.TestCase):
@@ -15,77 +15,62 @@ class IntervalPlanRunnerTests(unittest.TestCase):
         self.run_dir = self.root / "run"
         self.run_dir.mkdir()
         self.config = self.root / "design.yaml"
-        self.config.write_text("variables: {}\nsimulation: {}\n", encoding="utf-8")
-        self.plan_path = self.run_dir / "interval_preparation" / "characterization.json"
-        self.bands = [
-            FrequencyBand(0.1, 0.6, 168),
-            FrequencyBand(0.5, 1.0, 168),
-        ]
+        self.config.write_text("variables: {}\\nsimulation: {}\\n", encoding="utf-8")
 
     def tearDown(self):
         self.temp.cleanup()
 
-    def test_prepares_once_and_persists_plan_for_resume(self):
+    def test_prepares_equal_width_plan_and_persists_it_for_resume(self):
         settings = {}
-        prepared = {
-            "manifest_path": str(self.plan_path),
-            "selected_bands": self.bands,
-        }
-        stop_requested = lambda: False
-        with patch(
-            "multiband_fdtd.characterize_and_select_intervals",
-            return_value=prepared,
-        ) as characterize:
-            path, bands, created = _prepare_interval_plan(
-                self.config, self.run_dir, settings, (0.1, 1.0), 301,
-                stop_requested=stop_requested,
-            )
-        characterize.assert_called_once()
-        self.assertIs(
-            characterize.call_args.kwargs["stop_requested"], stop_requested
+        path, bands, created = _prepare_interval_plan(
+            self.config, self.run_dir, settings, (0.1, 1.0), 301,
+            stop_requested=lambda: False,
         )
         self.assertTrue(created)
-        self.assertEqual(path, str(self.plan_path.resolve()))
-        self.assertEqual(bands, self.bands)
+        self.assertTrue(Path(path).is_file())
+        self.assertEqual(len(bands), 2)
+        self.assertEqual(sum(band.n_pts for band in bands), 301)
+        self.assertAlmostEqual(bands[0].fstart_ghz, 0.1)
+        self.assertAlmostEqual(bands[0].fstop_ghz, 0.55)
+        self.assertAlmostEqual(bands[1].fstart_ghz, 0.55)
+        self.assertAlmostEqual(bands[1].fstop_ghz, 1.0)
+        self.assertTrue(all(band.fstop_ghz - band.fstart_ghz <= 0.5
+                            for band in bands))
+
         saved = json.loads((self.run_dir / "run_settings.json").read_text())
         self.assertEqual(saved["interval_plan_path"], path)
         self.assertEqual(saved["interval_plan_frequency_range_ghz"], [0.1, 1.0])
+        manifest = json.loads(Path(path).read_text())
+        self.assertEqual(
+            manifest["candidate_generation"]["sampling_mode"],
+            "equal_total_points",
+        )
 
-        with (
-            patch("multiband_fdtd.characterize_and_select_intervals") as characterize_again,
-            patch("multiband_fdtd.load_interval_plan", return_value=self.bands) as load_plan,
-        ):
-            path_again, bands_again, created_again = _prepare_interval_plan(
-                self.config, self.run_dir, saved, (0.1, 1.0), 301
-            )
-        characterize_again.assert_not_called()
-        load_plan.assert_called_once_with(
-            path, n_points=301, config_path=self.config
+        reloaded = load_interval_plan(path, n_points=301, config_path=self.config)
+        self.assertEqual(reloaded, bands)
+        path_again, bands_again, created_again = _prepare_interval_plan(
+            self.config, self.run_dir, saved, (0.1, 1.0), 301
         )
         self.assertFalse(created_again)
         self.assertEqual(path_again, path)
-        self.assertEqual(bands_again, self.bands)
+        self.assertEqual(bands_again, bands)
 
     def test_refuses_to_prepare_new_plan_for_existing_history(self):
         (self.run_dir / "evaluations.sqlite").write_bytes(b"")
-        with patch("multiband_fdtd.characterize_and_select_intervals") as characterize:
-            with self.assertRaisesRegex(ValueError, "already has evaluation history"):
-                _prepare_interval_plan(
-                    self.config, self.run_dir, {}, (0.1, 1.0), 301
-                )
-        characterize.assert_not_called()
+        with self.assertRaisesRegex(ValueError, "already has evaluation history"):
+            _prepare_interval_plan(
+                self.config, self.run_dir, {}, (0.1, 1.0), 301
+            )
 
     def test_rejects_frequency_range_change_on_resume(self):
         settings = {
-            "interval_plan_path": str(self.plan_path),
+            "interval_plan_path": str(self.run_dir / "missing.json"),
             "interval_plan_frequency_range_ghz": [0.1, 1.0],
         }
-        with patch("multiband_fdtd.load_interval_plan") as load_plan:
-            with self.assertRaisesRegex(ValueError, "frequency range"):
-                _prepare_interval_plan(
-                    self.config, self.run_dir, settings, (0.2, 1.0), 301
-                )
-        load_plan.assert_not_called()
+        with self.assertRaisesRegex(ValueError, "frequency range"):
+            _prepare_interval_plan(
+                self.config, self.run_dir, settings, (0.2, 1.0), 301
+            )
 
 
 if __name__ == "__main__":
