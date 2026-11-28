@@ -2066,9 +2066,11 @@ class MainWindow(QMainWindow):
                 entries = []
         if not entries:
             for label, filename in (
-                ("|S11| magnitude (dB)", "s11_plot.png"),
+                ("Integrated overview (2×4)", "integrated_overview.png"),
+                ("|S11| magnitude (dB)", "s11_magnitude_db.png"),
+                ("Radiation pattern", "radiation_pattern.png"),
+                ("Phase(S11)", "s11_phase.png"),
                 ("Integrated overview (legacy)", "multiband_results.png"),
-                ("Integrated overview (2×2)", "integrated_overview.png"),
                 ("Radiation results", "radiation_plot.png"),
             ):
                 image_path = results_dir / filename
