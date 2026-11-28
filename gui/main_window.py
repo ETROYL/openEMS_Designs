@@ -92,6 +92,7 @@ class MainWindow(QMainWindow):
         self._radiation_original_pixmap = QPixmap()
         self._result_plot_catalog: list[dict[str, str]] = []
         self._result_plot_directory: Path | None = None
+        self._pattern_update_only = False
         self._postprocess_process = QProcess(self)
         self._postprocess_process.readyReadStandardOutput.connect(self._postprocess_stdout)
         self._postprocess_process.readyReadStandardError.connect(self._postprocess_stderr)
@@ -602,19 +603,39 @@ class MainWindow(QMainWindow):
         plot_controls.addWidget(self.results_plot_combo)
         plot_controls.addStretch(1)
 
+        pattern_controls = QHBoxLayout()
+        pattern_controls.addWidget(QLabel("Radiation pattern frequency:"))
+        self.pattern_frequency_spin = QDoubleSpinBox()
+        self.pattern_frequency_spin.setDecimals(6)
+        self.pattern_frequency_spin.setRange(0.000001, 1.0e6)
+        self.pattern_frequency_spin.setSingleStep(0.01)
+        self.pattern_frequency_spin.setSuffix(" GHz")
+        self.pattern_frequency_spin.setToolTip(
+            "Choose any frequency covered by the recorded far-field simulation bands."
+        )
+        self.update_pattern_button = QPushButton("Update pattern")
+        self.update_pattern_button.setEnabled(False)
+        self.update_pattern_button.setToolTip(
+            "Recalculate only the selected far-field pattern and refresh the 2×4 overview."
+        )
+        self.update_pattern_button.clicked.connect(self._request_radiation_pattern_update)
+        pattern_controls.addWidget(self.pattern_frequency_spin)
+        pattern_controls.addWidget(self.update_pattern_button)
+        pattern_controls.addStretch(1)
+
         self.results_log = QPlainTextEdit()
         self.results_log.setReadOnly(True)
         self.results_log.setMaximumHeight(64)
         self.results_log.setPlaceholderText("Post-processing output…")
 
-        self.s11_plot_label = QLabel("S11 magnitude (dB) will appear here.")
+        self.s11_plot_label = QLabel("Integrated results overview will appear here.")
         self.s11_plot_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
         self.s11_plot_label.setMinimumSize(320, 260)
         self.s11_plot_label.setSizePolicy(
             QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Expanding
         )
         self.s11_plot_label.setStyleSheet(
-            "background: palette(alternate-base); border-radius: 6px;"
+            "background: #171b22; border: 1px solid #343d4a; border-radius: 6px;"
         )
         # Retained as a compatibility target for older single-band result paths.
         self.radiation_plot_label = QLabel()
@@ -625,6 +646,7 @@ class MainWindow(QMainWindow):
         layout.addWidget(self.results_status)
         layout.addWidget(self.results_summary)
         layout.addLayout(plot_controls)
+        layout.addLayout(pattern_controls)
         layout.addWidget(self.results_log)
         layout.addWidget(self.s11_plot_label, 1)
         return page
