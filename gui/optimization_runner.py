@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import argparse
+import hashlib
 import json
 import math
 import shutil
@@ -31,11 +32,8 @@ def _prepare_interval_plan(
     output_points: int,
     stop_requested=None,
 ):
-    """Load an existing frozen plan or prepare it once for a new run."""
-    from multiband_fdtd import (
-        characterize_and_select_intervals,
-        load_interval_plan,
-    )
+    """Load or create a deterministic equal-width interval plan."""
+    from multiband_fdtd import build_equal_width_frequency_bands, load_interval_plan
 
     saved_plan = run_settings.get("interval_plan_path")
     if saved_plan:
@@ -60,23 +58,40 @@ def _prepare_interval_plan(
             "This optimization already has evaluation history but no saved interval "
             "plan. Refusing to prepare a different plan for an existing run."
         )
+    if stop_requested is not None and stop_requested():
+        raise InterruptedError("Interval planning was interrupted before execution.")
 
-    preparation_dir = run_dir / "interval_preparation"
-    if preparation_dir.exists():
-        shutil.rmtree(preparation_dir)
-    plan = characterize_and_select_intervals(
-        config_path=config_path,
-        output_dir=preparation_dir,
-        frequency_range_ghz=frequency_range,
-        stop_requested=stop_requested,
+    bands = build_equal_width_frequency_bands(
+        frequency_range, output_points, maximum_bandwidth_ghz=0.5
     )
-    plan_path = str(Path(plan["manifest_path"]).resolve())
-    run_settings["interval_plan_path"] = plan_path
+    preparation_dir = run_dir / "interval_preparation"
+    preparation_dir.mkdir(parents=True, exist_ok=True)
+    plan_path = preparation_dir / "interval_plan.json"
+    manifest = {
+        "plan_version": 1,
+        "config_sha256": hashlib.sha256(config_path.read_bytes()).hexdigest(),
+        "candidate_generation": {
+            "n_pts": int(output_points),
+            "sampling_mode": "equal_total_points",
+        },
+        "selection": {
+            "frequency_range_ghz": [float(frequency_range[0]), float(frequency_range[1])],
+            "selected_intervals": [
+                {
+                    "fstart_ghz": float(band.fstart_ghz),
+                    "fstop_ghz": float(band.fstop_ghz),
+                    "n_pts": int(band.n_pts),
+                }
+                for band in bands
+            ],
+        },
+    }
+    plan_path.write_text(json.dumps(manifest, indent=2), encoding="utf-8")
+    run_settings["interval_plan_path"] = str(plan_path.resolve())
     run_settings["interval_plan_frequency_range_ghz"] = list(frequency_range)
     metadata_path = run_dir / "run_settings.json"
     metadata_path.write_text(json.dumps(run_settings, indent=2), encoding="utf-8")
-    return plan_path, plan["selected_bands"], True
-
+    return str(plan_path.resolve()), bands, True
 
 
 def main() -> int:
@@ -147,7 +162,7 @@ def main() -> int:
         )
         output_points = int(effective_settings.get("n_pts", 301))
         print(
-            "Preparing fixed intervals from the YAML default geometry "
+            "Preparing deterministic equal-width intervals "
             "or loading the saved plan.",
             flush=True,
         )
@@ -159,14 +174,14 @@ def main() -> int:
         except InterruptedError:
             if pause_file.exists() and not stop_file.exists():
                 print(
-                    "Interval preparation paused. Resume will repeat any unfinished preparation steps.",
+                    "Interval planning paused before candidate evaluations started.",
                     flush=True,
                 )
                 print("OPTIMIZATION_PAUSED=1", flush=True)
                 return 0
             if stop_file.exists():
                 print(
-                    "Interval preparation stopped after the current pilot; no candidate evaluations were started.",
+                    "Interval planning stopped before candidate evaluations started.",
                     flush=True,
                 )
                 print("OPTIMIZATION_STOPPED=1", flush=True)
