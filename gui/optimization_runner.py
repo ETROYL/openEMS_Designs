@@ -133,11 +133,6 @@ def main() -> int:
     resources = detect_cpu_resources()
     if args.resource_mode == "default":
         args.workers, args.threads_per_worker = 4, 2
-    try:
-        validate_allocation(args.workers, args.threads_per_worker)
-    except ValueError as exc:
-        parser.error(str(exc))
-
     with config_path.open("r", encoding="utf-8") as stream:
         config = yaml.safe_load(stream) or {}
     metadata_path = run_dir / "run_settings.json"
@@ -232,6 +227,11 @@ def main() -> int:
             f"{band_allocation.logical_cpus} logical CPUs.",
             flush=True,
         )
+
+    try:
+        validate_allocation(args.workers, args.threads_per_worker)
+    except ValueError as exc:
+        parser.error(str(exc))
 
     space = DiscreteParameterSpace.from_config(config)
     if space.dimension == 0:
