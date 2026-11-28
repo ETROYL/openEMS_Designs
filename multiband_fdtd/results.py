@@ -381,16 +381,75 @@ def process_results(csv_path: str | Path, output_dir: str | Path,
 
 
 
+def _dark_plot_theme():
+    """Apply the ETROYL charcoal plotting palette."""
+    import matplotlib.pyplot as plt
+
+    plt.rcParams.update({
+        "figure.facecolor": "#171b22",
+        "axes.facecolor": "#202630",
+        "axes.edgecolor": "#697586",
+        "axes.labelcolor": "#e6eaf0",
+        "text.color": "#f2f4f7",
+        "xtick.color": "#c5ccd6",
+        "ytick.color": "#c5ccd6",
+        "grid.color": "#596273",
+        "grid.alpha": 0.32,
+        "legend.facecolor": "#252d38",
+        "legend.edgecolor": "#596273",
+        "savefig.facecolor": "#171b22",
+    })
+
+
+def _port_reference_ohms(output_dir: Path) -> float | None:
+    """Read the first port resistance from the saved design YAML, if present."""
+    import yaml
+
+    config_path = output_dir / "design.yaml"
+    if not config_path.is_file():
+        return None
+    try:
+        config = yaml.safe_load(config_path.read_text(encoding="utf-8")) or {}
+        ports = config.get("ports") or []
+        if ports:
+            value = float(ports[0]["resistance"])
+            return value if np.isfinite(value) and value > 0 else None
+    except (OSError, ValueError, TypeError, KeyError, yaml.YAMLError):
+        return None
+    return None
+
+
+def _draw_radiation_pattern(axis, far_field: dict) -> None:
+    """Draw the selected E/H-plane cuts from stored far-field samples."""
+    theta = np.asarray(far_field.get("radiation_pattern_theta_deg", []), dtype=float)
+    e_plane = np.asarray(far_field.get("radiation_pattern_e_plane_db", []), dtype=float)
+    h_plane = np.asarray(far_field.get("radiation_pattern_h_plane_db", []), dtype=float)
+    if theta.size and e_plane.size == theta.size and h_plane.size == theta.size:
+        theta_rad = np.deg2rad(theta)
+        axis.plot(theta_rad, e_plane, color="#3995ff", linewidth=1.8, label="E-plane")
+        axis.plot(theta_rad, h_plane, color="#ff5252", linewidth=1.8, label="H-plane")
+        axis.set_rlim(-30, 0)
+        axis.set_rticks([-30, -20, -10, 0])
+        axis.legend(loc="lower right", fontsize=7)
+        frequency = far_field.get("radiation_pattern_frequency_ghz")
+        if frequency is not None:
+            axis.set_title(f"Radiation pattern · {float(frequency):.4g} GHz", pad=12)
+    else:
+        axis.text(0.5, 0.5, "Far-field pattern unavailable", ha="center",
+                  va="center", transform=axis.transAxes)
+
+
 def create_result_plot_set(
     csv_path: str | Path,
     output_dir: str | Path,
     far_field: dict | None = None,
 ) -> list[dict[str, str]]:
-    """Create full-size individual plots and a compact 2x2 overview."""
+    """Create the ETROYL 2x4 results overview and individual diagnostic plots."""
     import matplotlib
     matplotlib.use("Agg")
     import matplotlib.pyplot as plt
 
+    _dark_plot_theme()
     output_dir = Path(output_dir)
     data = _load_response(csv_path)
     frequency = data["frequency_ghz"]
@@ -399,6 +458,8 @@ def create_result_plot_set(
     vswr = (1.0 + s11_mag) / np.maximum(1.0 - s11_mag, 1e-12)
     z_real, z_imag = data["z_real"], data["z_imag"]
     analysis = analyze_broadband_csv(csv_path)
+    far_field = far_field or {}
+    z0 = _port_reference_ohms(output_dir)
 
     def save_plot(filename, draw, figsize=(12, 7)):
         figure, axis = plt.subplots(figsize=figsize)
@@ -411,118 +472,145 @@ def create_result_plot_set(
         return str(path)
 
     def draw_s11(axis):
-        axis.plot(frequency, s11_db, linewidth=1.8)
-        axis.axhline(-10, linestyle="--", linewidth=1.0, label="-10 dB")
-        axis.axhline(-20, linestyle=":", linewidth=1.0, label="-20 dB")
+        axis.plot(frequency, s11_db, color="#3995ff", linewidth=1.8)
+        axis.axhline(-10, color="#aeb8c6", linestyle="--", linewidth=1.0, label="-10 dB")
+        axis.axhline(-20, color="#aeb8c6", linestyle=":", linewidth=1.0, label="-20 dB")
         axis.set_title("S11 magnitude")
         axis.set_xlabel("Frequency (GHz)")
         axis.set_ylabel("|S11| (dB)")
         axis.legend()
 
     def draw_vswr(axis):
-        axis.plot(frequency, vswr, linewidth=1.8)
-        axis.axhline(2.0, linestyle="--", label="VSWR 2")
+        axis.plot(frequency, vswr, color="#ff5252", linewidth=1.8)
+        axis.axhline(2.0, color="#f2f4f7", linestyle="--", linewidth=1.1, label="VSWR = 2")
+        axis.set_ylim(0, 5)
         axis.set_title("Voltage standing-wave ratio")
         axis.set_xlabel("Frequency (GHz)")
         axis.set_ylabel("VSWR")
         axis.legend()
 
-    def draw_bandwidth(axis):
-        rows = []
-        for threshold, bands in (
-            ("-10 dB", analysis["bands_below_minus_10_db"]),
-            ("-20 dB", analysis["bands_below_minus_20_db"]),
-        ):
-            for index, band in enumerate(bands, start=1):
-                rows.append((threshold, index, band))
-        if not rows:
-            axis.text(0.5, 0.5, "No bands below -10 dB", ha="center", va="center",
-                      transform=axis.transAxes)
-        else:
-            labels = [f"{t} band {i}" for t, i, _ in rows]
-            widths = [item["bandwidth_ghz"] for _, _, item in rows]
-            axis.barh(labels, widths)
-        axis.set_title("Matched bandwidth by threshold")
-        axis.set_xlabel("Bandwidth (GHz)")
-
-    def draw_impedance(axis):
-        axis.plot(frequency, z_real, label="Resistance")
-        axis.plot(frequency, z_imag, label="Reactance")
-        axis.axhline(0, linestyle=":", linewidth=0.8)
-        axis.set_title("Input impedance")
+    def draw_real_impedance(axis):
+        axis.plot(frequency, z_real, color="#3995ff", linewidth=1.8, label="Re(Zin)")
+        if z0 is not None:
+            axis.axhline(z0, color="#f2f4f7", linestyle="--", linewidth=1.1,
+                         label=f"Port impedance = {z0:g} Ω")
+            axis.legend()
+        axis.set_title("Real input impedance")
         axis.set_xlabel("Frequency (GHz)")
-        axis.set_ylabel("Impedance (Ω)")
+        axis.set_ylabel("Resistance (Ω)")
+
+    def draw_imag_impedance(axis):
+        axis.plot(frequency, z_imag, color="#ff9f43", linewidth=1.8, label="Im(Zin)")
+        axis.axhline(0.0, color="#f2f4f7", linestyle="--", linewidth=1.1,
+                     label="Zero reference")
+        axis.set_title("Imaginary input impedance")
+        axis.set_xlabel("Frequency (GHz)")
+        axis.set_ylabel("Reactance (Ω)")
         axis.legend()
+
+    def draw_phase(axis):
+        phase_deg = np.rad2deg(np.angle(data["s11_complex"]))
+        axis.plot(frequency, phase_deg, color="#b38cff", linewidth=1.7)
+        axis.set_ylim(-180, 180)
+        axis.set_yticks([-180, -90, 0, 90, 180])
+        axis.set_title("S11 phase (wrapped)")
+        axis.set_xlabel("Frequency (GHz)")
+        axis.set_ylabel("Phase (degrees)")
+
+    def draw_far_curve(axis, key, title, ylabel, color):
+        values = far_field.get(key)
+        eval_freqs = far_field.get("frequency_ghz")
+        if values and eval_freqs and len(values) == len(eval_freqs):
+            axis.plot(eval_freqs, values, color=color, linewidth=1.8)
+        else:
+            axis.text(0.5, 0.5, "Far-field data unavailable", ha="center",
+                      va="center", transform=axis.transAxes)
+        axis.set_title(title)
+        axis.set_xlabel("Frequency (GHz)")
+        axis.set_ylabel(ylabel)
 
     catalog = [
         {"label": "|S11| magnitude (dB)", "filename": "s11_magnitude_db.png",
          "path": save_plot("s11_magnitude_db.png", draw_s11)},
         {"label": "VSWR", "filename": "vswr_plot.png",
          "path": save_plot("vswr_plot.png", draw_vswr)},
-        {"label": "Matched bandwidth", "filename": "bandwidth_plot.png",
-         "path": save_plot("bandwidth_plot.png", draw_bandwidth)},
-        {"label": "Input impedance", "filename": "input_impedance.png",
-         "path": save_plot("input_impedance.png", draw_impedance)},
-        {"label": "Input resistance", "filename": "input_resistance.png",
-         "path": save_plot("input_resistance.png",
-                           lambda ax: (ax.plot(frequency, z_real), ax.set_title("Input resistance"),
-                                       ax.set_xlabel("Frequency (GHz)"), ax.set_ylabel("Resistance (Ω)")) )},
-        {"label": "Input reactance", "filename": "input_reactance.png",
-         "path": save_plot("input_reactance.png",
-                           lambda ax: (ax.plot(frequency, z_imag), ax.set_title("Input reactance"),
-                                       ax.set_xlabel("Frequency (GHz)"), ax.set_ylabel("Reactance (Ω)")) )},
+        {"label": "Real input impedance", "filename": "input_resistance.png",
+         "path": save_plot("input_resistance.png", draw_real_impedance)},
+        {"label": "Imaginary input impedance", "filename": "input_reactance.png",
+         "path": save_plot("input_reactance.png", draw_imag_impedance)},
     ]
 
-
     if "s11_complex" in data:
-        phase_deg = np.unwrap(np.angle(data["s11_complex"])) * 180.0 / np.pi
-        phase_path = save_plot(
-            "s11_phase.png",
-            lambda axis: (
-                axis.plot(frequency, phase_deg, linewidth=1.7),
-                axis.set_title("S11 phase"),
-                axis.set_xlabel("Frequency (GHz)"),
-                axis.set_ylabel("Phase (degrees)"),
+        catalog.append({
+            "label": "Phase(S11) · wrapped ±180°",
+            "filename": "s11_phase.png",
+            "path": save_plot("s11_phase.png", draw_phase),
+        })
+
+    if far_field.get("radiation_pattern_theta_deg"):
+        catalog.append({
+            "label": "Radiation pattern",
+            "filename": "radiation_pattern.png",
+            "path": save_plot(
+                "radiation_pattern.png",
+                lambda axis: _draw_radiation_pattern(axis, far_field),
+                figsize=(10, 8),
             ),
-        )
-        catalog_phase = {
-            "label": "Phase(S11)", "filename": "s11_phase.png",
-            "path": phase_path,
-        }
-        catalog.insert(2, catalog_phase)
-
-    far_field = far_field or {}
-    for label, key, filename in (
-        ("Radiation pattern", "radiation_pattern_plot", "radiation_pattern.png"),
-        ("Directivity", "directivity_plot", "directivity_plot.png"),
-        ("Realized gain", "realized_gain_plot", "realized_gain_plot.png"),
-        ("Total efficiency", "efficiency_plot", "efficiency_plot.png"),
+        })
+    for label, key, filename, title, ylabel, color in (
+        ("Realized gain", "realized_gain_dbi", "realized_gain_plot.png",
+         "Realized gain", "Realized gain (dBi)", "#ff9f43"),
+        ("Directivity", "directivity_dbi", "directivity_plot.png",
+         "Directivity", "Directivity (dBi)", "#39c6a5"),
+        ("Total efficiency", "total_efficiency_percent", "efficiency_plot.png",
+         "Total efficiency", "Efficiency (%)", "#b38cff"),
     ):
-        path = far_field.get(key)
-        if path and Path(path).is_file():
-            catalog.append({"label": label, "filename": filename, "path": str(path)})
+        if far_field.get(key):
+            catalog.append({
+                "label": label, "filename": filename,
+                "path": save_plot(
+                    filename,
+                    lambda ax, k=key, t=title, y=ylabel, c=color:
+                        draw_far_curve(ax, k, t, y, c),
+                ),
+            })
 
-    figure, axes = plt.subplots(2, 2, figsize=(14, 9))
-    draw_s11(axes[0, 0])
-    if far_field.get("frequency_ghz") and far_field.get("total_efficiency_percent"):
-        axes[0, 1].plot(far_field["frequency_ghz"],
-                        far_field["total_efficiency_percent"], linewidth=1.5)
-        axes[0, 1].set_title("Total efficiency")
-        axes[0, 1].set_xlabel("Frequency (GHz)")
-        axes[0, 1].set_ylabel("Efficiency (%)")
-    else:
-        draw_vswr(axes[0, 1])
-    draw_bandwidth(axes[1, 0])
-    draw_impedance(axes[1, 1])
-    for axis in axes.flat:
-        axis.grid(True, alpha=0.25)
-    figure.suptitle("Integrated simulation overview", fontsize=14)
-    figure.tight_layout()
+    # The requested overview remains a readable 2x4 matrix. The phase plot is
+    # available separately in the plot selector so none of the eight panels
+    # has to be compressed or omitted.
+    figure = plt.figure(figsize=(20, 10), constrained_layout=True)
+    axes = [
+        figure.add_subplot(2, 4, 1),
+        figure.add_subplot(2, 4, 2),
+        figure.add_subplot(2, 4, 3),
+        figure.add_subplot(2, 4, 4),
+        figure.add_subplot(2, 4, 5, projection="polar"),
+        figure.add_subplot(2, 4, 6),
+        figure.add_subplot(2, 4, 7),
+        figure.add_subplot(2, 4, 8),
+    ]
+    draw_s11(axes[0])
+    draw_vswr(axes[1])
+    draw_real_impedance(axes[2])
+    draw_imag_impedance(axes[3])
+    _draw_radiation_pattern(axes[4], far_field)
+    draw_far_curve(axes[5], "realized_gain_dbi", "Realized gain",
+                   "Realized gain (dBi)", "#ff9f43")
+    draw_far_curve(axes[6], "directivity_dbi", "Directivity",
+                   "Directivity (dBi)", "#39c6a5")
+    draw_far_curve(axes[7], "total_efficiency_percent", "Total efficiency",
+                   "Efficiency (%)", "#b38cff")
+    axes[7].axhline(100.0, color="#f2f4f7", linestyle="--", linewidth=1.0,
+                    label="100% reference")
+    axes[7].set_ylim(0, 105)
+    axes[7].legend(fontsize=7)
+    for axis in (axes[0], axes[1], axes[2], axes[3], axes[5], axes[6], axes[7]):
+        axis.grid(True, alpha=0.28)
     overview_path = output_dir / "integrated_overview.png"
-    figure.savefig(overview_path, dpi=190, bbox_inches="tight")
+    figure.savefig(overview_path, dpi=180, bbox_inches="tight")
     plt.close(figure)
-    catalog.insert(1, {
-        "label": "Integrated overview (2×2)",
+    catalog.insert(0, {
+        "label": "Integrated overview (2×4)",
         "filename": "integrated_overview.png",
         "path": str(overview_path),
     })
@@ -530,7 +618,6 @@ def create_result_plot_set(
         json.dumps(catalog, indent=2), encoding="utf-8"
     )
     return catalog
-
 
 def main() -> int:
     parser = argparse.ArgumentParser(description="Analyze broadband antenna simulation results.")
