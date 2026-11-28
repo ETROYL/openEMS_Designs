@@ -301,7 +301,8 @@ def calculate_far_field(csv_path: str | Path, simulation_dir: str | Path,
             flush=True,
         )
     band_dir = band_for(resonance_ghz)[2]
-    pattern_result = nf2ff_for(band_dir).CalcNF2FF(
+    _pattern_port, pattern_nf2ff = nf2ff_for(band_dir)
+    pattern_result = pattern_nf2ff.CalcNF2FF(
         str(band_dir), resonance_ghz * 1e9, theta, phi
     )
 
@@ -692,10 +693,18 @@ def create_result_plot_set(
             ),
         })
     for label, key, filename, title, ylabel, color in (
+        ("Gain", "gain_dbi", "gain_plot.png",
+         "Gain", "Gain (dBi)", "#3995ff"),
         ("Realized gain", "realized_gain_dbi", "realized_gain_plot.png",
          "Realized gain", "Realized gain (dBi)", "#ff9f43"),
         ("Directivity", "directivity_dbi", "directivity_plot.png",
          "Directivity", "Directivity (dBi)", "#39c6a5"),
+        ("Radiation efficiency", "radiation_efficiency_percent",
+         "radiation_efficiency_plot.png", "Radiation efficiency",
+         "Efficiency (%)", "#f2f4f7"),
+        ("Mismatch efficiency", "mismatch_efficiency_percent",
+         "mismatch_efficiency_plot.png", "Mismatch efficiency",
+         "Efficiency (%)", "#3995ff"),
         ("Total efficiency", "total_efficiency_percent", "efficiency_plot.png",
          "Total efficiency", "Efficiency (%)", "#b38cff"),
     ):
@@ -728,16 +737,37 @@ def create_result_plot_set(
     draw_real_impedance(axes[2])
     draw_imag_impedance(axes[3])
     _draw_radiation_pattern(axes[4], far_field)
-    draw_far_curve(axes[5], "realized_gain_dbi", "Realized gain",
-                   "Realized gain (dBi)", "#ff9f43")
+    gain_values = far_field.get("gain_dbi")
+    realized_values = far_field.get("realized_gain_dbi")
+    eval_freqs = far_field.get("frequency_ghz")
+    if gain_values and realized_values and eval_freqs and (
+        len(gain_values) == len(eval_freqs) == len(realized_values)
+    ):
+        axes[5].plot(eval_freqs, gain_values, color="#3995ff",
+                     linewidth=1.7, label="Gain")
+        axes[5].plot(eval_freqs, realized_values, color="#ff9f43",
+                     linewidth=1.7, label="Realized gain")
+        axes[5].set_title("Gain and realized gain")
+        axes[5].set_xlabel("Frequency (GHz)")
+        axes[5].set_ylabel("Gain (dBi)")
+        axes[5].legend(fontsize=7)
+    else:
+        draw_far_curve(axes[5], "gain_dbi", "Gain and realized gain",
+                       "Gain (dBi)", "#3995ff")
     draw_far_curve(axes[6], "directivity_dbi", "Directivity",
                    "Directivity (dBi)", "#39c6a5")
     draw_far_curve(axes[7], "total_efficiency_percent", "Total efficiency",
                    "Efficiency (%)", "#b38cff")
-    axes[7].axhline(100.0, color="#f2f4f7", linestyle="--", linewidth=1.0,
-                    label="100% reference")
+    axes[7].plot(far_field.get("frequency_ghz", []),
+                 far_field.get("radiation_efficiency_percent", []),
+                 "--", color="#f2f4f7", linewidth=1.2,
+                 label="Radiation efficiency")
+    axes[7].plot(far_field.get("frequency_ghz", []),
+                 far_field.get("mismatch_efficiency_percent", []),
+                 color="#3995ff", linewidth=1.2,
+                 label="Mismatch efficiency")
     axes[7].set_ylim(0, 105)
-    axes[7].legend(fontsize=7)
+    axes[7].legend(fontsize=6)
     for axis in (axes[0], axes[1], axes[2], axes[3], axes[5], axes[6], axes[7]):
         axis.grid(True, alpha=0.28)
         axis.set_xlim(float(frequency[0]), float(frequency[-1]))
