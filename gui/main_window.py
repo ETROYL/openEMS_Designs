@@ -1797,6 +1797,7 @@ class MainWindow(QMainWindow):
             except (OSError, ValueError, TypeError):
                 far_field_available = False
         self._load_result_catalog(output_dir)
+        self._sync_pattern_frequency_controls()
 
         metrics_path = output_dir / "multiband_metrics.json"
         if metrics_path.is_file():
@@ -1815,6 +1816,7 @@ class MainWindow(QMainWindow):
         self.statusBar().showMessage("Existing simulation results loaded")
 
     def start_postprocessing(self) -> None:
+        self._pattern_update_only = False
         if self._postprocess_process.state() != QProcess.ProcessState.NotRunning:
             QMessageBox.information(self, "Post-processing", "Post-processing is already running.")
             return
@@ -1869,6 +1871,83 @@ class MainWindow(QMainWindow):
             ]
         self._postprocess_process.start(sys.executable, process_args)
 
+    def _sync_pattern_frequency_controls(self) -> None:
+        """Enable the frequency selector only when far-field recordings exist."""
+        if not hasattr(self, "update_pattern_button"):
+            return
+        enabled = False
+        if self.last_simulation_multiband and self.last_simulation_dir:
+            manifest_path = self.last_simulation_dir / "multiband_run.json"
+            metrics_path = self.last_simulation_dir / "far_field_metrics.json"
+            try:
+                manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+                metrics = json.loads(metrics_path.read_text(encoding="utf-8"))
+                enabled = bool(manifest.get("far_field_recorded"))
+                lower = float(metrics.get("frequency_ghz", [0.000001])[0])
+                upper = float(metrics.get("frequency_ghz", [1.0e6])[-1])
+                if upper > lower > 0:
+                    self.pattern_frequency_spin.setRange(lower, upper)
+                selected = float(metrics.get(
+                    "radiation_pattern_frequency_ghz",
+                    metrics.get("minimum_s11_frequency_ghz", lower),
+                ))
+                self.pattern_frequency_spin.setValue(min(max(selected, lower), upper))
+            except (OSError, ValueError, TypeError, KeyError):
+                enabled = False
+        self.update_pattern_button.setEnabled(
+            enabled and self._postprocess_process.state() == QProcess.ProcessState.NotRunning
+        )
+
+    def _request_radiation_pattern_update(self) -> None:
+        """Recalculate the NF2FF pattern at the frequency selected in the Results tab."""
+        if self._postprocess_process.state() != QProcess.ProcessState.NotRunning:
+            QMessageBox.information(self, "Radiation pattern", "Post-processing is already running.")
+            return
+        if not self.last_simulation_multiband or not self.last_simulation_dir:
+            QMessageBox.warning(
+                self, "Radiation pattern",
+                "Selectable radiation-pattern frequency currently requires a multi-band result "
+                "with recorded far-field data.",
+            )
+            return
+        response_csv = self.last_simulation_dir / "broadband_response.csv"
+        manifest_path = self.last_simulation_dir / "multiband_run.json"
+        if not response_csv.is_file() or not manifest_path.is_file():
+            QMessageBox.warning(self, "Radiation pattern", "The required simulation files are missing.")
+            return
+        try:
+            manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+        except (OSError, ValueError):
+            QMessageBox.warning(self, "Radiation pattern", "Could not read the simulation manifest.")
+            return
+        if not manifest.get("far_field_recorded", False):
+            QMessageBox.information(
+                self, "Radiation pattern",
+                "Far-field data was not recorded for this simulation. Run a new simulation "
+                "with far-field recording enabled to select the pattern frequency.",
+            )
+            return
+
+        frequency = self.pattern_frequency_spin.value()
+        process_args = [
+            "-m", "multiband_fdtd.results",
+            "--csv", str(response_csv),
+            "--output-dir", str(self.last_simulation_dir),
+            "--simulation-dir", str(self.last_simulation_dir),
+            "--pattern-frequency", f"{frequency:.12g}",
+            "--pattern-only",
+        ]
+        self._pattern_update_only = True
+        self.results_log.clear()
+        self.results_log.appendPlainText(
+            f"Updating radiation pattern at {frequency:.6g} GHz…"
+        )
+        self.results_status.setText(f"Calculating radiation pattern at {frequency:.6g} GHz…")
+        self.update_pattern_button.setEnabled(False)
+        self.run_postprocess_button.setEnabled(False)
+        self.run_simulation_button.setEnabled(False)
+        self._postprocess_process.start(sys.executable, process_args)
+
     def _postprocess_stdout(self) -> None:
         data = bytes(self._postprocess_process.readAllStandardOutput()).decode(errors="replace")
         if data:
@@ -1880,6 +1959,8 @@ class MainWindow(QMainWindow):
             self.results_log.appendPlainText(data.rstrip())
 
     def _postprocess_finished(self, exit_code: int, _exit_status) -> None:
+        pattern_update_only = self._pattern_update_only
+        self._pattern_update_only = False
         self.run_simulation_button.setEnabled(True)
         can_process = bool(
             self.last_simulation_dir and self.last_simulation_dir.is_dir()
@@ -1892,14 +1973,22 @@ class MainWindow(QMainWindow):
             if self.last_simulation_multiband:
                 self._load_result_catalog(self.last_simulation_dir)
                 self._show_multiband_metrics(self.last_simulation_dir / "multiband_metrics.json")
-                self.results_status.setText(
-                    f"Broadband post-processing complete. Results: {self.last_simulation_dir}"
-                )
+                if pattern_update_only:
+                    frequency = self.pattern_frequency_spin.value()
+                    self.results_status.setText(
+                        f"Radiation pattern updated at {frequency:.6g} GHz. "
+                        f"Results: {self.last_simulation_dir}"
+                    )
+                else:
+                    self.results_status.setText(
+                        f"Broadband post-processing complete. Results: {self.last_simulation_dir}"
+                    )
             else:
                 legacy_plots = []
                 for label, filename in (
                     ("S-parameter response", "s11_plot.png"),
                     ("Radiation pattern", "radiation_plot.png"),
+                    ("S11 phase", "s11_phase_plot.png"),
                 ):
                     if (self.last_simulation_dir / filename).is_file():
                         legacy_plots.append({
@@ -1912,6 +2001,7 @@ class MainWindow(QMainWindow):
             self.results_status.setText("Post-processing failed. See the log for details.")
             self.results_log.appendPlainText(f"Post-processing process exited with code {exit_code}.")
             self.statusBar().showMessage("Post-processing failed")
+        self._sync_pattern_frequency_controls()
 
     def _show_multiband_metrics(self, metrics_path: Path) -> None:
         try:
@@ -1955,6 +2045,7 @@ class MainWindow(QMainWindow):
                     "(radiation efficiency assumed 100% for ideal PEC)"
                 )
             self.results_summary.setText("\n".join(lines))
+            self._sync_pattern_frequency_controls()
         except (OSError, ValueError, KeyError, TypeError) as exc:
             self.results_summary.setText(f"Could not load broadband performance metrics: {exc}")
 
@@ -2070,6 +2161,8 @@ class MainWindow(QMainWindow):
             )
         )
         self.run_postprocess_button.setEnabled(can_process)
+        self._pattern_update_only = False
+        self._sync_pattern_frequency_controls()
         self.results_status.setText("Could not start post-processing. Check Python and Matplotlib dependencies.")
         self.results_log.appendPlainText(
             "Could not start the post-processing process. Check the Python environment and openEMS imports."
