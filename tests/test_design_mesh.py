@@ -37,9 +37,6 @@ class NF2FFMeshSupportTests(unittest.TestCase):
             )
 
 
-if __Test__ if False else True:
-    pass
-
 
 if __name__ == "__main__":
     unittest.main()
