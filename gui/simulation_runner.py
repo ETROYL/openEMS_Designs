@@ -34,7 +34,7 @@ def run_multiband_simulation(config_path: Path, output_parent: Path, design_name
     print("Simulation profile: accurate (-40 dB, 1,000,000 timesteps, 1,024 points)", flush=True)
     print(f"Frequency range: {fstart:g}–{fstop:g} GHz", flush=True)
     print(f"OpenMP threads per band: {NUM_THREADS}", flush=True)
-    print("Preparing intervals for the current design geometry…", flush=True)
+    print("Preparing deterministic equal-width frequency intervals…", flush=True)
 
     from multiband_fdtd import run_multiband_auto
     import matplotlib
