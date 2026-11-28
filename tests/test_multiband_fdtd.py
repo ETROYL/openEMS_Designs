@@ -531,6 +531,7 @@ class AutomaticRunTests(unittest.TestCase):
         self.assertEqual(kwargs["max_timesteps"], 200000)
         self.assertEqual(kwargs["n_points"], 301)
         self.assertEqual(kwargs["profile"], "optimization")
+        self.assertEqual(kwargs["smoothing_sigma_points"], 1.5)
 
     def test_rejects_invalid_profile_before_solver(self):
         with tempfile.TemporaryDirectory() as temp:
@@ -546,15 +547,18 @@ class AutomaticRunTests(unittest.TestCase):
 
 
 class EqualWidthIntervalPlannerTests(unittest.TestCase):
-    def test_ceil_band_count_and_even_point_distribution(self):
+    def test_builds_overlapping_bands_at_requested_frequency_density(self):
         from multiband_fdtd import build_equal_width_frequency_bands
 
         bands = build_equal_width_frequency_bands((0.1, 3.0), 301)
-        self.assertEqual(len(bands), 6)
-        self.assertEqual([band.n_pts for band in bands], [51, 50, 50, 50, 50, 50])
-        self.assertEqual(sum(band.n_pts for band in bands), 301)
+        self.assertEqual(len(bands), 7)
+        self.assertTrue(all(band.n_pts >= 2 for band in bands))
         self.assertTrue(all(band.fstop_ghz - band.fstart_ghz <= 0.5 + 1e-12
                             for band in bands))
+        self.assertTrue(all(
+            abs((left.fstop_ghz - right.fstart_ghz) - 0.1) < 1e-9
+            for left, right in zip(bands, bands[1:])
+        ))
 
     def test_generates_twenty_percent_overlap_and_preserves_grid_density(self):
         from multiband_fdtd import build_equal_width_frequency_bands
