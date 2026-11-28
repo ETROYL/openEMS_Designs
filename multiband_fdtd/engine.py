@@ -599,9 +599,12 @@ def run_multiband_auto(
         f"(maximum {maximum_bandwidth_ghz:g} GHz); no pilot simulations required.",
         flush=True,
     )
-    result = run_multiband(
+    root = Path(output_dir).expanduser().resolve()
+    root.parent.mkdir(parents=True, exist_ok=True)
+    root.mkdir(parents=False, exist_ok=False)
+    production = run_multiband(
         config_path=config_path,
-        output_dir=output_dir,
+        output_dir=root / "simulation",
         bands=bands,
         profile=profile,
         frequency_range_ghz=frequency_range_ghz,
@@ -612,7 +615,25 @@ def run_multiband_auto(
         smoothing_sigma_points=smoothing_sigma_points,
         record_far_field=record_far_field,
     )
-    result["interval_plan"] = [
-        asdict(band) for band in bands
-    ]
-    return result
+    plan_manifest = {
+        "profile": profile,
+        "frequency_range_ghz": list(map(float, frequency_range_ghz)),
+        "selected_intervals": [asdict(band) for band in bands],
+        "production_output_dir": production["output_dir"],
+        "production_settings": {
+            "n_points": sample_count,
+            "end_criteria_db": default_db if end_criteria_db is None else float(end_criteria_db),
+            "max_timesteps": default_steps if max_timesteps is None else int(max_timesteps),
+            "threads": int(threads),
+            "far_field_recorded": bool(record_far_field),
+        },
+    }
+    (root / "automatic_run.json").write_text(
+        json.dumps(plan_manifest, indent=2), encoding="utf-8"
+    )
+    return {
+        **production,
+        "interval_plan": [asdict(band) for band in bands],
+        "selected_bands": bands,
+        "automatic_output_dir": str(root),
+    }
