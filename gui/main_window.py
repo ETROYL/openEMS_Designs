@@ -1921,23 +1921,55 @@ class MainWindow(QMainWindow):
                     manifest = json.loads(run_manifest.read_text(encoding="utf-8"))
                     if manifest.get("far_field_recorded"):
                         process_args.extend(["--simulation-dir", str(self.last_simulation_dir)])
-                        # Existing far-field metrics can be reused. Refresh the
-                        # selected pattern and all plots with one NF2FF extraction
-                        # instead of repeating the full 21-frequency analysis.
+
+                        # Reuse existing far-field metrics only when the complete
+                        # frequency-dependent data set is present. Older or partial
+                        # metrics must trigger a full post-process from the saved
+                        # NF2FF and port recordings; pattern-only refresh would
+                        # otherwise preserve missing gain/efficiency curves.
                         far_field_metrics_path = self.last_simulation_dir / "far_field_metrics.json"
+                        metrics_are_complete = False
                         if far_field_metrics_path.is_file():
-                            far_field_metrics = json.loads(
-                                far_field_metrics_path.read_text(encoding="utf-8")
-                            )
-                            selected_frequency = float(
-                                far_field_metrics.get(
-                                    "radiation_pattern_frequency_ghz",
-                                    0.5 * (
-                                        float(far_field_metrics["frequency_ghz"][0])
-                                        + float(far_field_metrics["frequency_ghz"][-1])
-                                    ),
+                            try:
+                                saved_metrics = json.loads(
+                                    far_field_metrics_path.read_text(encoding="utf-8")
                                 )
+                                metric_keys = (
+                                    "directivity_dbi",
+                                    "gain_dbi",
+                                    "realized_gain_dbi",
+                                    "radiation_efficiency_percent",
+                                    "mismatch_efficiency_percent",
+                                    "total_efficiency_percent",
+                                )
+                                frequencies = saved_metrics.get("frequency_ghz")
+                                if isinstance(frequencies, list) and frequencies:
+                                    sample_count = len(frequencies)
+                                    metrics_are_complete = all(
+                                        isinstance(saved_metrics.get(key), list)
+                                        and len(saved_metrics[key]) == sample_count
+                                        and all(
+                                            math.isfinite(float(value))
+                                            for value in saved_metrics[key]
+                                        )
+                                        for key in metric_keys
+                                    ) and all(
+                                        math.isfinite(float(value))
+                                        for value in frequencies
+                                    )
+                            except (OSError, ValueError, TypeError, KeyError):
+                                metrics_are_complete = False
+
+                        if metrics_are_complete:
+                            saved_frequency = saved_metrics.get(
+                                "radiation_pattern_frequency_ghz"
                             )
+                            if saved_frequency is None:
+                                saved_frequency = 0.5 * (
+                                    float(saved_metrics["frequency_ghz"][0])
+                                    + float(saved_metrics["frequency_ghz"][-1])
+                                )
+                            selected_frequency = float(saved_frequency)
                             process_args.extend([
                                 "--pattern-frequency", f"{selected_frequency:.12g}",
                                 "--pattern-only",
