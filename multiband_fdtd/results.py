@@ -302,6 +302,50 @@ def calculate_far_field(csv_path: str | Path, simulation_dir: str | Path,
         "radiation_pattern_frequency_ghz": resonance_ghz,
         "radiation_plot": str(radiation_plot),
     }
+
+    # Separate plot assets let the GUI display each result at full size.
+    def save_curve(filename, title, ylabel, values, *, label=None):
+        fig, axis = plt.subplots(figsize=(12, 7))
+        axis.plot(eval_freqs_ghz, values, linewidth=1.8, label=label)
+        axis.set_title(title)
+        axis.set_xlabel("Frequency (GHz)")
+        axis.set_ylabel(ylabel)
+        axis.grid(True, alpha=0.3)
+        if label:
+            axis.legend()
+        fig.tight_layout()
+        path = output_dir / filename
+        fig.savefig(path, dpi=190, bbox_inches="tight")
+        plt.close(fig)
+        return str(path)
+
+    pattern_figure = plt.figure(figsize=(10, 8))
+    pattern_axis = pattern_figure.add_subplot(111, projection="polar")
+    pattern_axis.plot(theta_rad, e_db[:, 0], linewidth=1.8, label="E-plane (phi=0°)")
+    pattern_axis.plot(theta_rad, e_db[:, 1], linestyle="--", linewidth=1.8,
+                      label="H-plane (phi=90°)")
+    pattern_axis.set_rmin(-30)
+    pattern_axis.set_rmax(0)
+    pattern_axis.set_title(f"Radiation pattern at {resonance_ghz:.4g} GHz")
+    pattern_axis.legend(loc="lower right")
+    pattern_figure.tight_layout()
+    pattern_path = output_dir / "radiation_pattern.png"
+    pattern_figure.savefig(pattern_path, dpi=190, bbox_inches="tight")
+    plt.close(pattern_figure)
+
+    metrics["radiation_pattern_plot"] = str(pattern_path)
+    metrics["directivity_plot"] = save_curve(
+        "directivity_plot.png", "Peak directivity", "Directivity (dBi)", directivity
+    )
+    metrics["realized_gain_plot"] = save_curve(
+        "realized_gain_plot.png", "Realized gain (ideal PEC model)",
+        "Realized gain (dBi)", realized_gain
+    )
+    metrics["efficiency_plot"] = save_curve(
+        "efficiency_plot.png", "Total efficiency", "Efficiency (%)",
+        total_efficiency, label="Total efficiency incl. mismatch"
+    )
+
     metrics_path = output_dir / "far_field_metrics.json"
     metrics_path.write_text(json.dumps(metrics, indent=2), encoding="utf-8")
     print(f"Saved radiation and far-field plot: {radiation_plot}", flush=True)
@@ -322,10 +366,147 @@ def process_results(csv_path: str | Path, output_dir: str | Path,
     create_results_plot(csv_path, output_dir / "multiband_results.png")
     metrics_path = output_dir / "multiband_metrics.json"
     metrics_path.write_text(json.dumps(metrics, indent=2), encoding="utf-8")
+    far_field = None
     if simulation_dir is not None:
         far_field = calculate_far_field(csv_path, simulation_dir, output_dir)
         metrics["far_field"] = far_field
+    create_result_plot_set(csv_path, output_dir, far_field)
     return metrics
+
+
+
+
+def create_result_plot_set(
+    csv_path: str | Path,
+    output_dir: str | Path,
+    far_field: dict | None = None,
+) -> list[dict[str, str]]:
+    """Create full-size individual plots and a compact 2x2 overview."""
+    import matplotlib
+    matplotlib.use("Agg")
+    import matplotlib.pyplot as plt
+
+    output_dir = Path(output_dir)
+    data = _load_response(csv_path)
+    frequency = data["frequency_ghz"]
+    s11_db = data["s11_db"]
+    s11_mag = 10.0 ** (s11_db / 20.0)
+    vswr = (1.0 + s11_mag) / np.maximum(1.0 - s11_mag, 1e-12)
+    z_real, z_imag = data["z_real"], data["z_imag"]
+    analysis = analyze_broadband_csv(csv_path)
+
+    def save_plot(filename, draw, figsize=(12, 7)):
+        figure, axis = plt.subplots(figsize=figsize)
+        draw(axis)
+        axis.grid(True, alpha=0.28)
+        figure.tight_layout()
+        path = output_dir / filename
+        figure.savefig(path, dpi=190, bbox_inches="tight")
+        plt.close(figure)
+        return str(path)
+
+    def draw_s11(axis):
+        axis.plot(frequency, s11_db, linewidth=1.8)
+        axis.axhline(-10, linestyle="--", linewidth=1.0, label="-10 dB")
+        axis.axhline(-20, linestyle=":", linewidth=1.0, label="-20 dB")
+        axis.set_title("S11 magnitude")
+        axis.set_xlabel("Frequency (GHz)")
+        axis.set_ylabel("|S11| (dB)")
+        axis.legend()
+
+    def draw_vswr(axis):
+        axis.plot(frequency, vswr, linewidth=1.8)
+        axis.axhline(2.0, linestyle="--", label="VSWR 2")
+        axis.set_title("Voltage standing-wave ratio")
+        axis.set_xlabel("Frequency (GHz)")
+        axis.set_ylabel("VSWR")
+        axis.legend()
+
+    def draw_bandwidth(axis):
+        rows = []
+        for threshold, bands in (
+            ("-10 dB", analysis["bands_below_minus_10_db"]),
+            ("-20 dB", analysis["bands_below_minus_20_db"]),
+        ):
+            for index, band in enumerate(bands, start=1):
+                rows.append((threshold, index, band))
+        if not rows:
+            axis.text(0.5, 0.5, "No bands below -10 dB", ha="center", va="center",
+                      transform=axis.transAxes)
+        else:
+            labels = [f"{t} band {i}" for t, i, _ in rows]
+            widths = [item["bandwidth_ghz"] for _, _, item in rows]
+            axis.barh(labels, widths)
+        axis.set_title("Matched bandwidth by threshold")
+        axis.set_xlabel("Bandwidth (GHz)")
+
+    def draw_impedance(axis):
+        axis.plot(frequency, z_real, label="Resistance")
+        axis.plot(frequency, z_imag, label="Reactance")
+        axis.axhline(0, linestyle=":", linewidth=0.8)
+        axis.set_title("Input impedance")
+        axis.set_xlabel("Frequency (GHz)")
+        axis.set_ylabel("Impedance (Ω)")
+        axis.legend()
+
+    catalog = [
+        {"label": "|S11| magnitude (dB)", "filename": "s11_magnitude_db.png",
+         "path": save_plot("s11_magnitude_db.png", draw_s11)},
+        {"label": "VSWR", "filename": "vswr_plot.png",
+         "path": save_plot("vswr_plot.png", draw_vswr)},
+        {"label": "Matched bandwidth", "filename": "bandwidth_plot.png",
+         "path": save_plot("bandwidth_plot.png", draw_bandwidth)},
+        {"label": "Input impedance", "filename": "input_impedance.png",
+         "path": save_plot("input_impedance.png", draw_impedance)},
+        {"label": "Input resistance", "filename": "input_resistance.png",
+         "path": save_plot("input_resistance.png",
+                           lambda ax: (ax.plot(frequency, z_real), ax.set_title("Input resistance"),
+                                       ax.set_xlabel("Frequency (GHz)"), ax.set_ylabel("Resistance (Ω)")) )},
+        {"label": "Input reactance", "filename": "input_reactance.png",
+         "path": save_plot("input_reactance.png",
+                           lambda ax: (ax.plot(frequency, z_imag), ax.set_title("Input reactance"),
+                                       ax.set_xlabel("Frequency (GHz)"), ax.set_ylabel("Reactance (Ω)")) )},
+    ]
+
+    far_field = far_field or {}
+    for label, key, filename in (
+        ("Radiation pattern", "radiation_pattern_plot", "radiation_pattern.png"),
+        ("Directivity", "directivity_plot", "directivity_plot.png"),
+        ("Realized gain", "realized_gain_plot", "realized_gain_plot.png"),
+        ("Total efficiency", "efficiency_plot", "efficiency_plot.png"),
+    ):
+        path = far_field.get(key)
+        if path and Path(path).is_file():
+            catalog.append({"label": label, "filename": filename, "path": str(path)})
+
+    figure, axes = plt.subplots(2, 2, figsize=(14, 9))
+    draw_s11(axes[0, 0])
+    if far_field.get("frequency_ghz") and far_field.get("total_efficiency_percent"):
+        axes[0, 1].plot(far_field["frequency_ghz"],
+                        far_field["total_efficiency_percent"], linewidth=1.5)
+        axes[0, 1].set_title("Total efficiency")
+        axes[0, 1].set_xlabel("Frequency (GHz)")
+        axes[0, 1].set_ylabel("Efficiency (%)")
+    else:
+        draw_vswr(axes[0, 1])
+    draw_bandwidth(axes[1, 0])
+    draw_impedance(axes[1, 1])
+    for axis in axes.flat:
+        axis.grid(True, alpha=0.25)
+    figure.suptitle("Integrated simulation overview", fontsize=14)
+    figure.tight_layout()
+    overview_path = output_dir / "integrated_overview.png"
+    figure.savefig(overview_path, dpi=190, bbox_inches="tight")
+    plt.close(figure)
+    catalog.append({
+        "label": "Integrated overview (2×2)",
+        "filename": "integrated_overview.png",
+        "path": str(overview_path),
+    })
+    (output_dir / "plot_catalog.json").write_text(
+        json.dumps(catalog, indent=2), encoding="utf-8"
+    )
+    return catalog
 
 
 def main() -> int:
