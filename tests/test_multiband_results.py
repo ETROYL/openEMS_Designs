@@ -7,7 +7,9 @@ import tempfile
 import unittest
 from pathlib import Path
 
-from multiband_fdtd.results import analyze_broadband_csv, calculate_far_field, process_results
+from multiband_fdtd.results import (
+    analyze_broadband_csv, calculate_far_field, process_results, wrapped_phase_degrees,
+  )
 
 
 class BroadbandResultsTests(unittest.TestCase):
@@ -78,11 +80,21 @@ class BroadbandResultsTests(unittest.TestCase):
             self.assertTrue((output_dir / "s11_magnitude_db.png").is_file())
             self.assertTrue((output_dir / "integrated_overview.png").is_file())
             catalog = json.loads((output_dir / "plot_catalog.json").read_text())
-            self.assertEqual(catalog[0]["label"], "|S11| magnitude (dB)")
-            self.assertEqual(catalog[1]["label"], "Integrated overview (2×2)")
-            self.assertEqual(catalog[3]["label"], "Phase(S11)")
+            self.assertEqual(catalog[0]["label"], "Integrated overview (2×4)")
+            self.assertEqual(catalog[1]["label"], "|S11| magnitude (dB)")
+            self.assertIn("wrapped ±180°", catalog[5]["label"])
             self.assertTrue((output_dir / "s11_phase.png").is_file())
             self.assertEqual(result["sample_count"], 6)
+
+    def test_s11_phase_is_wrapped_to_principal_degrees(self):
+        import numpy as np
+
+        phase = np.deg2rad([170.0, 190.0, -190.0, 540.0])
+        values = np.exp(1j * phase)
+        wrapped = wrapped_phase_degrees(values)
+        self.assertTrue(np.all(wrapped >= -180.0))
+        self.assertTrue(np.all(wrapped <= 180.0))
+        np.testing.assert_allclose(wrapped, [170.0, -170.0, 170.0, 180.0], atol=1e-10)
 
     def test_far_field_analysis_rejects_runs_without_recorded_fields(self):
         with tempfile.TemporaryDirectory() as tmp:
