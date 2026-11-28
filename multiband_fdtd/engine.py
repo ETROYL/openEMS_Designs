@@ -489,10 +489,6 @@ def run_multiband(
         comments="",
     )
     manifest["total_runtime_seconds"] = sum(item.runtime_seconds for item in completed_results)
-    print("__SIMULATION_PROGRESS__=" + json.dumps({
-        "phase": "complete", "completed": total_bands,
-        "total": total_bands, "workers": worker_count,
-    }), flush=True)
     manifest["band_results"] = [
         {"runtime_seconds": item.runtime_seconds, "mesh_cells": item.cells,
          "output_dir": item.output_dir} for item in completed_results
@@ -500,6 +496,10 @@ def run_multiband(
     (root / "multiband_run.json").write_text(
         json.dumps(manifest, indent=2), encoding="utf-8"
     )
+    print("__SIMULATION_PROGRESS__=" + json.dumps({
+        "phase": "complete", "completed": total_bands,
+        "total": total_bands, "workers": worker_count,
+    }), flush=True)
     return {
         **combined, "bands": completed_results,
         "total_runtime_seconds": manifest["total_runtime_seconds"],
