@@ -2044,8 +2044,12 @@ class MainWindow(QMainWindow):
         self.statusBar().showMessage("Post-processing failed to start")
 
     def _simulation_error(self, _error) -> None:
+        self._simulation_progress_timer.stop()
+        self._simulation_started_at = None
         self.run_simulation_button.setEnabled(True)
         self.stop_simulation_button.setEnabled(False)
+        self.simulation_stage_label.setText("Stage: could not start simulation process")
+        self.simulation_eta_label.setText("Remaining: —")
         self._set_simulation_status("SIMULATION FAILED TO START", "failure")
         self.simulation_log.appendPlainText(
             "Could not start the simulation process. Check the Python environment and openEMS imports."
