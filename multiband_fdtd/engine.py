@@ -28,6 +28,41 @@ class FrequencyBand:
             raise ValueError("Each band requires at least two frequency points.")
 
 
+
+def build_equal_width_frequency_bands(
+    frequency_range_ghz: tuple[float, float],
+    n_points: int,
+    *,
+    maximum_bandwidth_ghz: float = 0.5,
+) -> list[FrequencyBand]:
+    """Build a deterministic contiguous interval plan without solver probes."""
+    fstart, fstop = map(float, frequency_range_ghz)
+    if not (math.isfinite(fstart) and math.isfinite(fstop)
+            and 0 < fstart < fstop):
+        raise ValueError("Frequency range must satisfy 0 < fstart < fstop.")
+    if not isinstance(n_points, int) or n_points < 2:
+        raise ValueError("n_points must be an integer of at least 2.")
+    if not math.isfinite(maximum_bandwidth_ghz) or maximum_bandwidth_ghz <= 0:
+        raise ValueError("maximum_bandwidth_ghz must be finite and positive.")
+
+    span = fstop - fstart
+    band_count = max(1, int(math.ceil(span / maximum_bandwidth_ghz - 1e-12)))
+    if n_points < 2 * band_count:
+        raise ValueError(
+            f"{n_points} frequency points are insufficient for {band_count} "
+            "intervals; at least two points per interval are required."
+        )
+
+    base_points, remainder = divmod(n_points, band_count)
+    bands = []
+    for index in range(band_count):
+        low = fstart + span * index / band_count
+        high = fstop if index == band_count - 1 else fstart + span * (index + 1) / band_count
+        points = base_points + (1 if index < remainder else 0)
+        bands.append(FrequencyBand(low, high, points))
+    return bands
+
+
 class PilotMeshLimitExceeded(RuntimeError):
     """Raised when a pilot interval is unsafe to simulate."""
 
@@ -359,7 +394,7 @@ def run_multiband(
     }
 
 
-def run_multiband_auto(
+def run_multiband_characterized(
     config_path: str | Path,
     output_dir: str | Path,
     frequency_range_ghz: tuple[float, float],
@@ -525,3 +560,59 @@ def run_multiband_auto(
         "automatic_run_manifest_path": str(manifest_path),
         "automatic_output_dir": str(root),
     }
+
+
+def run_multiband_auto(
+    config_path: str | Path,
+    output_dir: str | Path,
+    frequency_range_ghz: tuple[float, float],
+    *,
+    profile: str = "optimization",
+    n_points: int | None = None,
+    end_criteria_db: float | None = None,
+    max_timesteps: int | None = None,
+    threads: int = 1,
+    smoothing_sigma_points: float = 0.0,
+    record_far_field: bool = False,
+    maximum_bandwidth_ghz: float = 0.5,
+    **_legacy_planner_options,
+) -> dict[str, Any]:
+    """Run using a fast, deterministic equal-width interval plan.
+
+    The legacy measured-planning implementation remains available through
+    run_multiband_characterized(); normal execution performs no pilot FDTD runs.
+    """
+    profiles = {
+        "optimization": (-15.0, 200000, 301),
+        "accurate": (-40.0, 1000000, 1024),
+    }
+    if profile not in profiles:
+        raise ValueError("profile must be 'optimization' or 'accurate'.")
+    default_db, default_steps, default_points = profiles[profile]
+    sample_count = default_points if n_points is None else int(n_points)
+    bands = build_equal_width_frequency_bands(
+        frequency_range_ghz, sample_count,
+        maximum_bandwidth_ghz=maximum_bandwidth_ghz,
+    )
+    print(
+        f"Prepared {len(bands)} equal-width interval(s) "
+        f"(maximum {maximum_bandwidth_ghz:g} GHz); no pilot simulations required.",
+        flush=True,
+    )
+    result = run_multiband(
+        config_path=config_path,
+        output_dir=output_dir,
+        bands=bands,
+        profile=profile,
+        frequency_range_ghz=frequency_range_ghz,
+        n_points=sample_count,
+        end_criteria_db=default_db if end_criteria_db is None else end_criteria_db,
+        max_timesteps=default_steps if max_timesteps is None else max_timesteps,
+        threads=threads,
+        smoothing_sigma_points=smoothing_sigma_points,
+        record_far_field=record_far_field,
+    )
+    result["interval_plan"] = [
+        asdict(band) for band in bands
+    ]
+    return result
