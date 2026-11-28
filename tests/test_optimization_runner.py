@@ -15,7 +15,7 @@ class IntervalPlanRunnerTests(unittest.TestCase):
         self.run_dir = self.root / "run"
         self.run_dir.mkdir()
         self.config = self.root / "design.yaml"
-        self.config.write_text("variables: {}\\nsimulation: {}\\n", encoding="utf-8")
+        self.config.write_text("variables: {}\nsimulation: {}\n", encoding="utf-8")
 
     def tearDown(self):
         self.temp.cleanup()
