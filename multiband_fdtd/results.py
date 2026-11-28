@@ -660,6 +660,7 @@ def create_result_plot_set(
     axes[7].legend(fontsize=7)
     for axis in (axes[0], axes[1], axes[2], axes[3], axes[5], axes[6], axes[7]):
         axis.grid(True, alpha=0.28)
+        axis.set_xlim(float(frequency[0]), float(frequency[-1]))
     overview_path = output_dir / "integrated_overview.png"
     figure.savefig(overview_path, dpi=180, bbox_inches="tight")
     plt.close(figure)
