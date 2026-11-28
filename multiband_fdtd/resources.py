@@ -61,3 +61,8 @@ def allocate_band_resources(
     if workers < 1 or threads < min_threads:
         raise ValueError("The available CPU capacity cannot satisfy the FDTD thread minimum.")
     return BandAllocation(workers, threads, capacity)
+
+
+def candidate_workers_for_allocation(allocation: BandAllocation) -> int:
+    """Return safe concurrent candidate count for identical interval pools."""
+    return max(1, allocation.logical_cpus // allocation.total_threads)
