@@ -168,7 +168,7 @@ class IntervalPlanCacheTests(unittest.TestCase):
     def test_round_trips_a_compatible_cached_plan(self):
         with tempfile.TemporaryDirectory() as temp:
             config = Path(temp) / "design.yaml"
-            config.write_text("variables: {}\\n", encoding="utf-8")
+            config.write_text("variables: {}\n", encoding="utf-8")
             digest = hashlib.sha256(config.read_bytes()).hexdigest()
             cache_path = Path(temp) / "cache" / ("a" * 64 + ".json")
             manifest = {
@@ -215,7 +215,7 @@ class IntervalPlanCacheTests(unittest.TestCase):
     def test_rejects_cache_for_changed_design(self):
         with tempfile.TemporaryDirectory() as temp:
             config = Path(temp) / "design.yaml"
-            config.write_text("variables: {}\\n", encoding="utf-8")
+            config.write_text("variables: {}\n", encoding="utf-8")
             digest = hashlib.sha256(config.read_bytes()).hexdigest()
             cache_path = Path(temp) / "cache" / ("b" * 64 + ".json")
             manifest = {
@@ -240,7 +240,7 @@ class IntervalPlanCacheTests(unittest.TestCase):
             }
             _store_cached_interval_plan(cache_path, manifest)
             config.write_text(
-                "variables: {arm_length: {default: 0.2}}\\n",
+                "variables: {arm_length: {default: 0.2}}\n",
                 encoding="utf-8",
             )
             loaded = _load_cached_interval_plan(
@@ -310,7 +310,7 @@ class IntervalPlanCacheTests(unittest.TestCase):
         characterize.side_effect = fake_characterize
         with tempfile.TemporaryDirectory() as temp:
             config = Path(temp) / "design.yaml"
-            config.write_text("variables: {}\\n", encoding="utf-8")
+            config.write_text("variables: {}\n", encoding="utf-8")
             cache = Path(temp) / "cache"
             common = {
                 "frequency_range_ghz": (0.1, 1.1),
@@ -483,7 +483,7 @@ class AutomaticRunTests(unittest.TestCase):
         }
         with tempfile.TemporaryDirectory() as temp:
             config = Path(temp) / "design.yaml"
-            config.write_text("variables: {}\\n", encoding="utf-8")
+            config.write_text("variables: {}\n", encoding="utf-8")
             output = Path(temp) / "automatic_run"
             result = run_multiband_auto(
                 config, output, (0.1, 3.0), profile="accurate",
@@ -520,7 +520,7 @@ class AutomaticRunTests(unittest.TestCase):
         run_production.return_value = {"output_dir": "simulation"}
         with tempfile.TemporaryDirectory() as temp:
             config = Path(temp) / "design.yaml"
-            config.write_text("variables: {}\\n", encoding="utf-8")
+            config.write_text("variables: {}\n", encoding="utf-8")
             run_multiband_auto(
                 config, Path(temp) / "run", (0.1, 1.0),
                 profile="optimization",
@@ -534,7 +534,7 @@ class AutomaticRunTests(unittest.TestCase):
     def test_rejects_invalid_profile_before_solver(self):
         with tempfile.TemporaryDirectory() as temp:
             config = Path(temp) / "design.yaml"
-            config.write_text("variables: {}\\n", encoding="utf-8")
+            config.write_text("variables: {}\n", encoding="utf-8")
             with patch("multiband_fdtd.engine.run_multiband") as run_production:
                 with self.assertRaises(ValueError):
                     run_multiband_auto(
